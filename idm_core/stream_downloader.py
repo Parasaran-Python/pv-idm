@@ -135,17 +135,21 @@ class HLSParser:
                     if match:
                         total_duration += float(match.group(1))
 
+            used_fallback = False
             if not bandwidth:
                 bandwidth = 2500000  # Default fallback 2.5 Mbps
+                used_fallback = True
 
             estimated_size = int((bandwidth / 8) * total_duration) if total_duration > 0 else 0
+            is_approx = total_duration <= 0 or used_fallback
             return {
                 "duration": total_duration,
                 "bandwidth": bandwidth,
-                "filesize": estimated_size
+                "filesize": estimated_size,
+                "filesize_approx": is_approx
             }
         except Exception:
-            return {"duration": 0, "bandwidth": 0, "filesize": 0}
+            return {"duration": 0, "bandwidth": 0, "filesize": 0, "filesize_approx": True}
 
     @classmethod
     def extract_formats(cls, m3u8_url: str, headers: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
@@ -211,6 +215,7 @@ class HLSParser:
                                 except Exception:
                                     pass
 
+                                is_approx = duration <= 0 or bw <= 0
                                 fmt = {
                                     "label": label,
                                     "height": height,
@@ -220,6 +225,7 @@ class HLSParser:
                                     "quality": str(height),
                                     "format": "MP4",
                                     "filesize": int((bw / 8) * duration) if duration > 0 else 0,
+                                    "filesize_approx": is_approx,
                                     "url": m3u8_url,
                                     "mime": "video/mp2t",
                                     "lang": "",
@@ -235,6 +241,7 @@ class HLSParser:
                         if match:
                             total_duration += float(match.group(1))
 
+                is_approx = total_duration <= 0
                 fmt = {
                     "label": "Best Quality",
                     "height": 0,
@@ -243,7 +250,8 @@ class HLSParser:
                     "bandwidth": 0,
                     "quality": "best",
                     "format": "MP4",
-                    "filesize": 0,
+                    "filesize": int((0 / 8) * total_duration) if total_duration > 0 else 0,
+                    "filesize_approx": is_approx,
                     "url": m3u8_url,
                     "mime": "video/mp2t",
                     "lang": "",
@@ -593,20 +601,30 @@ class DASHParser:
             tracks = parser.parse_tracks()
             duration = tracks.get("duration", 0.0)
             bandwidth = tracks.get("bandwidth", 0)
+            video_bw = tracks.get("video_bandwidth", 0)
+            audio_bw = tracks.get("audio_bandwidth", 0)
+            used_fallback = False
             if not bandwidth:
                 bandwidth = 2500000  # Default fallback 2.5 Mbps
+                used_fallback = True
             estimated_size = int((bandwidth / 8) * duration) if duration > 0 else 0
+            # Mark as approximate only if duration unknown or fallback bandwidth used
+            # (video-only or audio-only streams with known duration are NOT approximate)
+            is_approx = duration <= 0 or used_fallback
             return {
                 "duration": duration,
                 "bandwidth": bandwidth,
-                "filesize": estimated_size
+                "filesize": estimated_size,
+                "filesize_approx": is_approx
             }
         except Exception:
-            return {"duration": 0, "bandwidth": 0, "filesize": 0}
+            return {"duration": 0, "bandwidth": 0, "filesize": 0, "filesize_approx": True}
 
     @classmethod
     def extract_formats(cls, mpd_url: str, headers: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
-        """Extract all available video and audio representations from a DASH manifest."""
+        """Extract all available video and audio representations from a DASH manifest.
+        Video format filesizes include best audio track size to match actual download size.
+        """
         try:
             parser = cls(mpd_url, headers=headers)
             content = parser._fetch_text(mpd_url)
@@ -625,6 +643,63 @@ class DASHParser:
             formats = []
             seen_heights = set()
 
+            # Collect all audio adaptations across periods to find best audio track
+            all_audio_adaptations = []
+            for period in periods:
+                period_duration_str = period.attrib.get("duration", "")
+                period_duration = parser.parse_iso8601_duration(period_duration_str) if period_duration_str else total_duration
+                p_base_url = base_url
+                for child in period:
+                    if parser._local_tag(child) == "BaseURL" and child.text:
+                        p_base_url = parser._resolve_url(p_base_url, child.text.strip())
+
+                period_tmpl = next((elem for elem in period if parser._local_tag(elem) == "SegmentTemplate"), None)
+
+                adaptations = [elem for elem in period if parser._local_tag(elem) == "AdaptationSet"]
+                for ad in adaptations:
+                    mime = ad.attrib.get("mimeType", "").lower()
+                    c_type = ad.attrib.get("contentType", "").lower()
+                    lang = ad.attrib.get("lang", "")
+                    ad_base = p_base_url
+                    for child in ad:
+                        if parser._local_tag(child) == "BaseURL" and child.text:
+                            ad_base = parser._resolve_url(ad_base, child.text.strip())
+
+                    ad_tmpl = next((elem for elem in ad if parser._local_tag(elem) == "SegmentTemplate"), period_tmpl)
+                    ad_list = next((elem for elem in ad if parser._local_tag(elem) == "SegmentList"), None)
+                    roles = [c.attrib.get("value", "") for c in ad if parser._local_tag(c) == "Role"]
+
+                    reps = [r for r in ad if parser._local_tag(r) == "Representation"]
+                    is_audio = mime.startswith("audio") or c_type == "audio" or any(r.attrib.get("audioSamplingRate") for r in reps)
+
+                    if is_audio:
+                        # Find best audio representation in this adaptation (highest bandwidth)
+                        best_audio_bw = 0
+                        for rep in reps:
+                            bw = int(rep.attrib.get("bandwidth", 0))
+                            if bw > best_audio_bw:
+                                best_audio_bw = bw
+                        if best_audio_bw > 0:
+                            all_audio_adaptations.append({
+                                "bandwidth": best_audio_bw,
+                                "roles": roles,
+                                "lang": lang,
+                                "period_duration": period_duration
+                            })
+
+            # Select best audio adaptation (prefer role='main', then highest bandwidth)
+            best_audio = None
+            if all_audio_adaptations:
+                all_audio_adaptations.sort(key=lambda a: (0 if "main" in a["roles"] else 1, -a["bandwidth"]))
+                best_audio = all_audio_adaptations[0]
+
+            best_audio_bandwidth = best_audio["bandwidth"] if best_audio else 0
+            # Use total_duration for size calculation to match actual download across all periods
+            best_audio_filesize = int((best_audio_bandwidth / 8) * total_duration) if total_duration > 0 and best_audio_bandwidth > 0 else 0
+            best_audio_is_approx = total_duration <= 0 or best_audio_bandwidth <= 0
+            has_audio = best_audio is not None
+
+            # Now process video adaptations and add audio size
             for period in periods:
                 period_duration_str = period.attrib.get("duration", "")
                 period_duration = parser.parse_iso8601_duration(period_duration_str) if period_duration_str else total_duration
@@ -684,6 +759,13 @@ class DASHParser:
                                 else:
                                     label += " (SD)"
 
+                                # Use total_duration for size calculation to match actual download across all periods
+                                video_filesize = int((bw / 8) * total_duration) if total_duration > 0 and bw > 0 else 0
+                                video_is_approx = total_duration <= 0 or bw <= 0
+                                # Combined size: video + best audio (if video is separate track and audio exists)
+                                combined_filesize = video_filesize + (best_audio_filesize if has_audio else 0)
+                                is_approx = video_is_approx or (best_audio_is_approx if has_audio else False)
+
                                 fmt = {
                                     "label": label,
                                     "height": h,
@@ -692,7 +774,8 @@ class DASHParser:
                                     "bandwidth": bw,
                                     "quality": str(h),
                                     "format": "MP4",
-                                    "filesize": int((bw / 8) * period_duration) if period_duration > 0 else 0,
+                                    "filesize": combined_filesize,
+                                    "filesize_approx": is_approx,
                                     "url": mpd_url,
                                     "mime": mime,
                                     "lang": lang,
@@ -707,6 +790,9 @@ class DASHParser:
                             label = "Audio Only"
                             if lang:
                                 label += f" ({lang})"
+                            # Use total_duration for size calculation to match actual download across all periods
+                            audio_filesize = int((bw / 8) * total_duration) if total_duration > 0 and bw > 0 else 0
+                            audio_is_approx = total_duration <= 0 or bw <= 0
                             fmt = {
                                 "label": label,
                                 "height": 0,
@@ -715,7 +801,8 @@ class DASHParser:
                                 "bandwidth": bw,
                                 "quality": "audio",
                                 "format": "MP3",
-                                "filesize": int((bw / 8) * period_duration) if period_duration > 0 else 0,
+                                "filesize": audio_filesize,
+                                "filesize_approx": audio_is_approx,
                                 "url": mpd_url,
                                 "mime": mime,
                                 "lang": lang,
