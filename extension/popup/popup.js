@@ -137,12 +137,46 @@ document.addEventListener("DOMContentLoaded", () => {
     return false;
   }
 
+  function extractYouTubeVideoId(url) {
+    if (!url) return null;
+    try {
+      const parsed = new URL(url);
+      const host = parsed.hostname.toLowerCase();
+      if (host.includes("youtube.com")) {
+        if (parsed.pathname.startsWith("/watch")) {
+          return parsed.searchParams.get("v");
+        } else if (parsed.pathname.startsWith("/shorts/") || parsed.pathname.startsWith("/live/") || parsed.pathname.startsWith("/embed/")) {
+          return parsed.pathname.split("/").pop();
+        }
+      } else if (host.includes("youtu.be")) {
+        return parsed.pathname.slice(1);
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function getYouTubeThumbnailUrl(videoId, quality = "hqdefault") {
+    if (!videoId) return null;
+    return `https://img.youtube.com/vi/${videoId}/${quality}.jpg`;
+  }
+
+  async function fetchPageThumbnail(tabId) {
+    try {
+      const response = await chrome.runtime.sendMessage({ action: "get_page_metadata", tabId });
+      if (response && response.thumbnail) {
+        return response.thumbnail;
+      }
+    } catch (e) {}
+    return null;
+  }
+
   // 4. Detected Active Tab Media Streams
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     if (chrome.runtime.lastError) return;
     if (tabs && tabs[0] && tabs[0].id) {
       const activeTab = tabs[0];
       let isYouTube = false;
+      let ytVideoId = null;
       if (activeTab.url) {
         try {
           const parsedUrl = new URL(activeTab.url);
@@ -150,12 +184,16 @@ document.addEventListener("DOMContentLoaded", () => {
           const path = parsedUrl.pathname.toLowerCase();
           if (host.includes("youtube.com")) {
             isYouTube = path.startsWith("/watch") || path.startsWith("/shorts") || path.startsWith("/live") || path.startsWith("/embed");
+            if (isYouTube) {
+              ytVideoId = extractYouTubeVideoId(activeTab.url);
+            }
           } else if (host.includes("youtu.be")) {
             isYouTube = true;
+            ytVideoId = extractYouTubeVideoId(activeTab.url);
           }
         } catch (e) {}
       }
-      chrome.runtime.sendMessage({ action: "get_tab_media", tabId: activeTab.id }, (res) => {
+      chrome.runtime.sendMessage({ action: "get_tab_media", tabId: activeTab.id }, async (res) => {
         if (chrome.runtime.lastError) return;
         const mediaCard = document.getElementById("media-card");
         const mediaList = document.getElementById("media-list");
@@ -167,15 +205,22 @@ document.addEventListener("DOMContentLoaded", () => {
         mediaCard.style.display = "block";
         mediaList.innerHTML = "";
 
+        let pageThumbnail = null;
+        if (!isYouTube && rawStreams.length > 0) {
+          pageThumbnail = await fetchPageThumbnail(activeTab.id);
+        }
+
         const validStreams = [];
         if (isYouTube) {
           const ytTitle = activeTab.title ? activeTab.title.replace(/[\\/:*?"<>|]/g, "_").trim() : "YouTube Video";
+          const thumbnailUrl = getYouTubeThumbnailUrl(ytVideoId);
           validStreams.push({
             url: activeTab.url,
             label: `YouTube: ${ytTitle}`,
             badge: "YOUTUBE",
             priority: 0,
-            filename: `${ytTitle}.mp4`
+            filename: `${ytTitle}.mp4`,
+            thumbnail: thumbnailUrl
           });
         }
 
@@ -189,6 +234,7 @@ document.addEventListener("DOMContentLoaded", () => {
           let label = "Video Stream";
           let badge = "STREAM";
           let priority = 5;
+          let thumbnail = null;
 
           if (streamUrl.includes(".mpd")) {
             label = filename ? `DASH: ${filename}` : "DASH Full Video Stream (.mpd)";
@@ -214,9 +260,13 @@ document.addEventListener("DOMContentLoaded", () => {
             label = "YouTube Video";
             badge = "YOUTUBE";
             priority = 1;
+            const ytId = extractYouTubeVideoId(streamUrl);
+            thumbnail = getYouTubeThumbnailUrl(ytId);
+          } else {
+            thumbnail = pageThumbnail;
           }
 
-          validStreams.push({ url: streamUrl, label: label, badge: badge, priority: priority, filename: filename });
+          validStreams.push({ url: streamUrl, label: label, badge: badge, priority: priority, filename: filename, thumbnail });
         });
 
         validStreams.sort((a, b) => a.priority - b.priority);
@@ -230,7 +280,11 @@ document.addEventListener("DOMContentLoaded", () => {
           row.className = "media-item";
           row.title = item.url;
           const cleanUrlHint = item.url.split("?")[0].replace(/^https?:\/\//, "");
+          const thumbHtml = item.thumbnail
+            ? `<img class="media-item-thumb" src="${item.thumbnail}" alt="" loading="lazy" onerror="this.style.display='none'">`
+            : `<div class="media-item-thumb-placeholder"></div>`;
           row.innerHTML = `
+            ${thumbHtml}
             <div class="media-item-info">
               <span class="media-item-title">${item.label}</span>
               <span class="media-item-url-hint">${cleanUrlHint}</span>

@@ -627,6 +627,35 @@
       sendResponse({ links: links });
       return true;
     }
+
+    if (request.action === "get_page_metadata") {
+      try {
+        let thumbnail = null;
+        const ogImage = document.querySelector('meta[property="og:image"]');
+        if (ogImage && ogImage.content) {
+          thumbnail = ogImage.content;
+        } else {
+          const twitterImage = document.querySelector('meta[name="twitter:image"]');
+          if (twitterImage && twitterImage.content) {
+            thumbnail = twitterImage.content;
+          } else {
+            const metaImage = document.querySelector('meta[itemprop="image"]');
+            if (metaImage && metaImage.content) {
+              thumbnail = metaImage.content;
+            } else {
+              const firstImg = document.querySelector("img");
+              if (firstImg && firstImg.src) {
+                thumbnail = firstImg.src;
+              }
+            }
+          }
+        }
+        sendResponse({ thumbnail });
+      } catch (e) {
+        sendResponse({ thumbnail: null });
+      }
+      return true;
+    }
   });
 
 })();
