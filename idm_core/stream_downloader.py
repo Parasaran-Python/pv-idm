@@ -118,15 +118,23 @@ class HLSParser:
             variant_url = m3u8_url
             is_master = any(line.startswith("#EXT-X-STREAM-INF") for line in lines)
             is_live = False
+            first_variant_url = None
 
             if is_master:
                 for i, line in enumerate(lines):
                     if line.startswith("#EXT-X-STREAM-INF"):
                         match = re.search(r"BANDWIDTH=(\d+)", line)
                         bw = int(match.group(1)) if match else 0
-                        if bw > bandwidth and i + 1 < len(lines) and not lines[i + 1].startswith("#"):
-                            bandwidth = bw
-                            variant_url = parser._resolve_url(m3u8_url, lines[i + 1])
+                        if i + 1 < len(lines) and not lines[i + 1].startswith("#"):
+                            variant_candidate = parser._resolve_url(m3u8_url, lines[i + 1])
+                            if first_variant_url is None:
+                                first_variant_url = variant_candidate
+                            if bw > bandwidth:
+                                bandwidth = bw
+                                variant_url = variant_candidate
+                # If no BANDWIDTH found, use first variant for duration probing
+                if variant_url == m3u8_url and first_variant_url:
+                    variant_url = first_variant_url
                 if variant_url != m3u8_url:
                     content = parser._fetch_text(variant_url)
                     lines = [line.strip() for line in content.splitlines() if line.strip()]
@@ -257,7 +265,9 @@ class HLSParser:
 
                 # Live stream detection: no EXT-X-ENDLIST in media playlist
                 is_live = not any(line == "#EXT-X-ENDLIST" for line in lines)
-                is_approx = total_duration <= 0 or is_live
+                # Media playlists lack BANDWIDTH info, so size is always approximate
+                has_bandwidth = False
+                is_approx = total_duration <= 0 or is_live or not has_bandwidth
                 fmt = {
                     "label": "Best Quality",
                     "height": 0,
