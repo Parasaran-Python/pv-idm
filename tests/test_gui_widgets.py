@@ -58,6 +58,31 @@ class TestGUIWidgets(unittest.TestCase):
         self.assertEqual(table.rowCount(), 1)
         self.assertEqual(table.item(0, 0).text(), "archive.zip")
 
+    def test_download_table_widget_assembling_status(self):
+        table = DownloadTableWidget()
+        dls = [
+            {
+                "id": "dl-merging",
+                "filename": "video.mp4",
+                "total_bytes": 1048576,
+                "downloaded_bytes": 1048576,
+                "status": "assembling",
+                "speed": 0,
+                "eta": 0,
+                "category": "Video",
+                "created_at": 1700000000,
+                "url": "https://example.com/video.mp4"
+            }
+        ]
+        table.update_downloads(dls)
+        self.assertEqual(table.rowCount(), 1)
+        self.assertEqual(table.item(0, 2).text(), "Assembling")
+        pbar = table.cellWidget(0, 3)
+        self.assertEqual(pbar.value(), 100)
+        self.assertEqual(pbar.format(), "Merging...")
+        self.assertEqual(table.item(0, 4).text(), "Merging...")
+        self.assertEqual(table.item(0, 5).text(), "Processing")
+
     def test_speed_graph_widget(self):
         graph = SpeedGraphWidget()
         self.assertIsNotNone(graph)

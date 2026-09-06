@@ -104,6 +104,8 @@ class DownloadTableWidget(QTableWidget):
                 status_item.setText(status)
             if status.lower() == "downloading":
                 status_item.setForeground(QColor("#48bb78"))
+            elif status.lower() in ["assembling", "merging"]:
+                status_item.setForeground(QColor("#9f7aea"))
             elif status.lower() == "completed":
                 status_item.setForeground(QColor("#4299e1"))
             elif status.lower() == "error":
@@ -113,19 +115,29 @@ class DownloadTableWidget(QTableWidget):
 
             # 3: Progress Bar Widget
             dl_bytes = dl.get("downloaded_bytes", 0)
-            pct = int((dl_bytes / total * 100)) if total > 0 else (100 if dl.get("status") == "completed" else 0)
+            is_assembling = status.lower() in ["assembling", "merging"]
+            pct = int((dl_bytes / total * 100)) if total > 0 else (100 if dl.get("status") in ["completed", "assembling", "merging"] else 0)
+            if is_assembling:
+                pct = 100
             pbar = self.cellWidget(row, 3)
             if not isinstance(pbar, QProgressBar):
                 pbar = QProgressBar()
                 pbar.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.setCellWidget(row, 3, pbar)
+            pbar_text = "Merging..." if is_assembling else f"{pct}%"
             if pbar.value() != pct:
                 pbar.setValue(pct)
-                pbar.setFormat(f"{pct}%")
+            if pbar.format() != pbar_text:
+                pbar.setFormat(pbar_text)
 
             # 4: Time Left
             eta = dl.get("eta", 0)
-            eta_str = format_time(eta) if dl.get("status") == "downloading" else ""
+            if is_assembling:
+                eta_str = "Merging..."
+            elif dl.get("status") == "downloading":
+                eta_str = format_time(eta)
+            else:
+                eta_str = ""
             eta_item = self.item(row, 4)
             if not eta_item:
                 self.setItem(row, 4, QTableWidgetItem(eta_str))
@@ -134,7 +146,12 @@ class DownloadTableWidget(QTableWidget):
 
             # 5: Transfer Rate
             speed = dl.get("speed", 0)
-            speed_str = format_speed(speed) if dl.get("status") == "downloading" else ""
+            if is_assembling:
+                speed_str = "Processing"
+            elif dl.get("status") == "downloading":
+                speed_str = format_speed(speed)
+            else:
+                speed_str = ""
             speed_item = self.item(row, 5)
             if not speed_item:
                 self.setItem(row, 5, QTableWidgetItem(speed_str))

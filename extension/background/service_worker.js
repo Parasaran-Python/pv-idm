@@ -589,13 +589,30 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           setTimeout(() => resolve({ thumbnail: null }), timeoutMs);
         });
         const messagePromise = new Promise((resolve) => {
-          chrome.tabs.sendMessage(tabId, { action: "get_page_metadata" }, { frameId: 0 }, (response) => {
-            if (chrome.runtime.lastError || !response) {
-              resolve({ thumbnail: null });
-            } else {
-              resolve({ thumbnail: response.thumbnail || null });
+          let resolved = false;
+          const done = (thumb) => {
+            if (!resolved) {
+              resolved = true;
+              resolve({ thumbnail: thumb || null });
             }
-          });
+          };
+          try {
+            const api = (typeof browser !== "undefined" && browser.tabs && browser.tabs.sendMessage) ? browser.tabs : chrome.tabs;
+            const res = api.sendMessage(tabId, { action: "get_page_metadata" }, { frameId: 0 }, (response) => {
+              if (chrome.runtime && chrome.runtime.lastError) {
+                done(null);
+              } else {
+                done(response && response.thumbnail ? response.thumbnail : null);
+              }
+            });
+            if (res && typeof res.then === "function") {
+              res.then((response) => {
+                done(response && response.thumbnail ? response.thumbnail : null);
+              }).catch(() => done(null));
+            }
+          } catch (e) {
+            done(null);
+          }
         });
         const result = await Promise.race([messagePromise, timeoutPromise]);
         sendResponse(result);

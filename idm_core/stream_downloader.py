@@ -1068,6 +1068,8 @@ class StreamDownloader:
             return False
 
     def _finalize_stream(self):
+        self.status = "assembling"
+        self._emit_progress()
         self.log("All stream segments fetched. Storing and remuxing stream...")
         os.makedirs(os.path.dirname(os.path.abspath(self.save_path)), exist_ok=True)
 
