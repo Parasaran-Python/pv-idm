@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "PV-IDM Integration Module",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "description": "Internet Download Manager (PV-IDM) integration for Linux. Automatically intercepts downloads and provides video sniffer download panel.",
   "permissions": [
     "downloads",
