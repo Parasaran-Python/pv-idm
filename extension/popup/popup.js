@@ -371,54 +371,9 @@ document.addEventListener("DOMContentLoaded", () => {
             });
           });
         }
-            });
-            img.src = item.thumbnail;
-            row.appendChild(img);
-          } else {
-            row.appendChild(createPlaceholder());
-          }
-
-          const infoDiv = document.createElement("div");
-          infoDiv.className = "media-item-info";
-
-          const titleSpan = document.createElement("span");
-          titleSpan.className = "media-item-title";
-          titleSpan.textContent = item.label;
-
-          const hintSpan = document.createElement("span");
-          hintSpan.className = "media-item-url-hint";
-          hintSpan.textContent = cleanUrlHint;
-
-          infoDiv.appendChild(titleSpan);
-          infoDiv.appendChild(hintSpan);
-          row.appendChild(infoDiv);
-
-          const badge = document.createElement("span");
-          badge.className = "media-item-badge";
-          badge.textContent = item.badge;
-          row.appendChild(badge);
-          row.addEventListener("click", () => {
-            const title = activeTab.title ? activeTab.title.replace(/[\\/:*?"<>|]/g, "_").trim() : "video";
-            const badgeLow = item.badge.toLowerCase();
-            const isStreamOrPlatform = badgeLow === "hls" || badgeLow === "dash" || badgeLow === "youtube";
-            const ext = isStreamOrPlatform ? "mp4" : badgeLow;
-            const quality = isStreamOrPlatform ? "best" : null;
-            chrome.runtime.sendMessage({
-              action: "download_media",
-              url: item.url,
-              page_url: activeTab.url || "",
-              filename: `${title}.${ext}`,
-              quality: "best"
-            }, () => {
-              if (chrome.runtime.lastError) { /* ignore */ }
-              window.close();
-            });
-          });
-          mediaList.appendChild(row);
-        });
-      });
-    }
-  });
+});
+      }
+    });
 
   // 5. Open Desktop Application
   btnOpenGui.addEventListener("click", () => {

@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import threading
 import time
+import http.client
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -643,7 +644,7 @@ class DASHParser:
                 "filesize": estimated_size,
                 "filesize_approx": is_approx
             }
-        except (urllib.error.URLError, ValueError, ET.ParseError):
+        except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError, ET.ParseError):
             return {"duration": 0, "bandwidth": 0, "filesize": 0, "filesize_approx": True}
 
     @classmethod
@@ -838,7 +839,7 @@ class DASHParser:
 
             formats.sort(key=lambda x: (x["height"], x.get("fps", 0)), reverse=True)
             return formats
-        except (urllib.error.URLError, ValueError, ET.ParseError):
+        except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError, ET.ParseError):
             return []
 
 
