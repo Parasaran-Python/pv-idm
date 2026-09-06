@@ -29,6 +29,9 @@
         }
         if (response && response.formats && response.formats.length > 0) {
           const fmts = response.formats;
+          if (isVideoWatchPage() && fmts.length === 1 && (fmts[0].quality === "best" || fmts[0].label === "Best Quality") && !fmts[0].filesize) {
+            return;
+          }
           fmts.__fromBackend = true;
           cachedFormatsForUrl.set(currentUrl, fmts);
           cachedFormatsForUrl.set(queryUrl, fmts);

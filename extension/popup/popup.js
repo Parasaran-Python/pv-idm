@@ -247,7 +247,9 @@ document.addEventListener("DOMContentLoaded", () => {
             badge: "YOUTUBE",
             priority: 0,
             filename: `${ytTitle}.mp4`,
-            thumbnail: thumbnailUrl
+            thumbnail: thumbnailUrl,
+            quality: "best",
+            isGeneric: true
           });
         }
 
@@ -296,6 +298,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
         validStreams.sort((a, b) => a.priority - b.priority);
 
+        function formatBytes(bytes) {
+          if (!bytes || bytes <= 0) return "";
+          const units = ["B", "KB", "MB", "GB", "TB"];
+          let i = 0;
+          let val = bytes;
+          while (val >= 1024 && i < units.length - 1) {
+            val /= 1024;
+            i++;
+          }
+          return `${val.toFixed(2)} ${units[i]}`;
+        }
+
         const seen = new Set();
         function createPlaceholder() {
           const placeholder = document.createElement("div");
@@ -306,13 +320,17 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         function renderStreamItem(item) {
-          if (seen.has(item.url)) return;
-          seen.add(item.url);
+          const streamKey = item.quality ? `${item.url}#q=${item.quality}` : item.url;
+          if (seen.has(streamKey)) return;
+          seen.add(streamKey);
 
           const row = document.createElement("div");
           row.className = "media-item";
           row.title = item.url;
           row.dataset.url = item.url;
+          if (item.isGeneric) {
+            row.dataset.generic = "true";
+          }
           const cleanUrlHint = item.url.split("?")[0].replace(/^https?:\/\//, "");
 
           if (item.thumbnail) {
@@ -336,7 +354,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
           const titleSpan = document.createElement("span");
           titleSpan.className = "media-item-title";
-          titleSpan.textContent = item.label;
+          const sizeStr = item.filesize && item.filesize > 0 ? ` (${formatBytes(item.filesize)})` : "";
+          titleSpan.textContent = `${item.label}${sizeStr}`;
 
           const hintSpan = document.createElement("span");
           hintSpan.className = "media-item-url-hint";
@@ -353,16 +372,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
           row.addEventListener("click", () => {
             const title = activeTab.title ? activeTab.title.replace(/[\\/:*?"<>|]/g, "_").trim() : "video";
-            const badgeLow = item.badge.toLowerCase();
-            const isStreamOrPlatform = badgeLow === "hls" || badgeLow === "dash" || badgeLow === "youtube";
-            const ext = isStreamOrPlatform ? "mp4" : badgeLow;
-            const quality = isStreamOrPlatform ? "best" : null;
+            const fmtLow = (item.format || "").toLowerCase();
+            const badgeLow = (item.badge || "").toLowerCase();
+            const isStreamOrPlatform = badgeLow === "hls" || badgeLow === "dash" || badgeLow === "youtube" || isYouTube;
+            const ext = fmtLow === "mp3" || fmtLow === "audio" ? "mp3" : (fmtLow === "webm" ? "webm" : (isStreamOrPlatform ? "mp4" : badgeLow));
+            const quality = item.quality || (isStreamOrPlatform ? "best" : null);
             chrome.runtime.sendMessage({
               action: "download_media",
               url: item.url,
               page_url: activeTab.url || "",
-              filename: `${title}.${ext}`,
-              quality: "best"
+              filename: item.filename || `${title}.${ext}`,
+              quality: quality,
+              filesize: item.filesize || 0,
+              format: fmtLow || ext
             }, () => {
               if (chrome.runtime.lastError) { /* ignore */ }
               window.close();
@@ -373,6 +395,38 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Render all stream items immediately with placeholders/YouTube thumbnails
         validStreams.forEach(renderStreamItem);
+
+        // Fetch multiple resolutions asynchronously for YouTube
+        if (isYouTube) {
+          chrome.runtime.sendMessage({ action: "query_media_formats", url: activeTab.url }, (fmtRes) => {
+            if (chrome.runtime.lastError || !fmtRes || !fmtRes.formats || fmtRes.formats.length <= 1) return;
+            const genericRow = mediaList.querySelector('.media-item[data-generic="true"]');
+            if (genericRow) {
+              genericRow.remove();
+            }
+            const ytTitle = activeTab.title ? activeTab.title.replace(/[\\/:*?"<>|]/g, "_").trim() : "YouTube Video";
+            const thumbnailUrl = getYouTubeThumbnailUrl(ytVideoId);
+
+            fmtRes.formats.forEach((f) => {
+              const fQuality = f.quality || "best";
+              const fFormat = (f.format || "mp4").toLowerCase();
+              const fExt = fFormat === "mp3" || fFormat === "audio" ? "mp3" : "mp4";
+              const fBadge = fQuality === "audio" ? "MP3" : `${fQuality}P`;
+              const fItem = {
+                url: activeTab.url,
+                label: `YouTube: ${ytTitle} (${f.label})`,
+                badge: fBadge,
+                priority: 0,
+                filename: `${ytTitle}.${fExt}`,
+                thumbnail: thumbnailUrl,
+                quality: fQuality,
+                filesize: f.filesize || 0,
+                format: fFormat
+              };
+              renderStreamItem(fItem);
+            });
+          });
+        }
 
         // Fetch page thumbnail asynchronously for non-YouTube streams
         if (!isYouTube && rawStreams.length > 0) {

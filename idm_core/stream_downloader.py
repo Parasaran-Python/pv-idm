@@ -116,6 +116,10 @@ class HLSParser:
             content = parser._fetch_text(m3u8_url)
             lines = [line.strip() for line in content.splitlines() if line.strip()]
 
+            # Validate that the content is actually an HLS playlist
+            if not any(line.startswith(("#EXTM3U", "#EXT-X-", "#EXTINF")) for line in lines):
+                return {"duration": 0, "bandwidth": 0, "filesize": 0, "filesize_approx": True}
+
             bandwidth = 0
             variant_url = m3u8_url
             is_master = any(line.startswith("#EXT-X-STREAM-INF") for line in lines)
@@ -179,6 +183,10 @@ class HLSParser:
             parser = cls(m3u8_url, headers=headers)
             content = parser._fetch_text(m3u8_url)
             lines = [line.strip() for line in content.splitlines() if line.strip()]
+
+            # Validate that the content is actually an HLS playlist
+            if not any(line.startswith(("#EXTM3U", "#EXT-X-", "#EXTINF")) for line in lines):
+                return []
 
             formats = []
             seen_heights = set()
@@ -899,7 +907,7 @@ class StreamDownloader:
     @staticmethod
     def detect_stream_type(url: str, content: Optional[str] = None) -> str:
         """Identify if a URL or manifest content represents HLS (.m3u8) or DASH (.mpd)."""
-        lower = url.lower()
+        lower = (url or "").lower()
         if ".mpd" in lower or "format=mpd" in lower or "type=mpd" in lower:
             return "dash"
         if ".m3u8" in lower or "format=m3u8" in lower or "type=m3u8" in lower:
@@ -907,9 +915,9 @@ class StreamDownloader:
         if content:
             if "<MPD" in content or "urn:mpeg:dash" in content:
                 return "dash"
-            if "#EXTM3U" in content or "#EXT-X-" in content:
+            if "#EXTM3U" in content or "#EXT-X-" in content or "#EXTINF" in content:
                 return "hls"
-        return "hls"
+        return ""
 
     @classmethod
     def probe_stream_info(cls, url: str, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
@@ -917,7 +925,9 @@ class StreamDownloader:
         stype = cls.detect_stream_type(url)
         if stype == "dash":
             return DASHParser.probe_stream_info(url, headers=headers)
-        return HLSParser.probe_stream_info(url, headers=headers)
+        if stype == "hls":
+            return HLSParser.probe_stream_info(url, headers=headers)
+        return {"duration": 0, "bandwidth": 0, "filesize": 0, "filesize_approx": True}
 
     @classmethod
     def extract_formats(cls, url: str, headers: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
@@ -925,7 +935,9 @@ class StreamDownloader:
         stype = cls.detect_stream_type(url)
         if stype == "dash":
             return DASHParser.extract_formats(url, headers=headers)
-        return HLSParser.extract_formats(url, headers=headers)
+        if stype == "hls":
+            return HLSParser.extract_formats(url, headers=headers)
+        return []
 
     def log(self, msg: str):
         if self.on_log:

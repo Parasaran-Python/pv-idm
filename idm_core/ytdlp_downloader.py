@@ -27,6 +27,16 @@ class YTDLPDownloader:
         ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".wav", ".opus", ".wma"
     )
 
+    _media_info_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+    _cache_lock = threading.Lock()
+    _CACHE_TTL = 300.0  # 5 minutes
+
+    @classmethod
+    def clear_cache(cls):
+        """Clear cached format and probe metadata."""
+        with cls._cache_lock:
+            cls._media_info_cache.clear()
+
     def __init__(
         self,
         download_id: str,
@@ -136,6 +146,13 @@ class YTDLPDownloader:
         if not cls.is_ytdlp_available() or not url:
             return []
 
+        now = time.time()
+        with cls._cache_lock:
+            if url in cls._media_info_cache:
+                ts, cached_info = cls._media_info_cache[url]
+                if now - ts < cls._CACHE_TTL:
+                    return list(cached_info.get("formats") or [])
+
         bin_name = resolve_binary("yt-dlp") or resolve_binary("youtube-dl") or "yt-dlp"
         cmd = [
             bin_name,
@@ -156,7 +173,19 @@ class YTDLPDownloader:
                 return []
 
             data = json.loads(res.stdout)
-            return cls._parse_formats_and_tiers(data, url)
+            tier_formats = cls._parse_formats_and_tiers(data, url)
+            raw_title = data.get("title") or ""
+            clean_title = re.sub(r'[\\/:*?"<>|]', '_', raw_title).strip()
+            ext = data.get("ext") or "mp4"
+            duration = data.get("duration") or 0
+            with cls._cache_lock:
+                cls._media_info_cache[url] = (now, {
+                    "title": clean_title,
+                    "ext": ext,
+                    "duration": duration,
+                    "formats": tier_formats
+                })
+            return tier_formats
         except Exception:
             return []
 
@@ -323,6 +352,42 @@ class YTDLPDownloader:
         if not cls.is_ytdlp_available() or not url:
             return {"title": "", "filename": "", "filesize": 0}
 
+        now = time.time()
+        with cls._cache_lock:
+            if url in cls._media_info_cache:
+                ts, cached_info = cls._media_info_cache[url]
+                if now - ts < cls._CACHE_TTL:
+                    tier_formats = cached_info.get("formats", [])
+                    clean_title = cached_info.get("title", "")
+                    ext = cached_info.get("ext") or "mp4"
+                    duration = cached_info.get("duration") or 0
+                    chosen_size = 0
+                    if quality:
+                        q_str = str(quality).lower().strip()
+                        q_digits = "".join(filter(str.isdigit, q_str))
+                        is_audio_q = "audio" in q_str or "mp3" in q_str
+                        for tf in tier_formats:
+                            if is_audio_q and tf["quality"] == "audio":
+                                chosen_size = tf["filesize"]
+                                ext = "mp3"
+                                break
+                            elif tf["quality"] == q_str:
+                                chosen_size = tf["filesize"]
+                                break
+                            elif q_digits and (tf["quality"] == q_digits or str(tf.get("height", "")) == q_digits):
+                                chosen_size = tf["filesize"]
+                                break
+                    if chosen_size <= 0 and tier_formats:
+                        chosen_size = tier_formats[0]["filesize"]
+                    filename = f"{clean_title}.{ext}" if clean_title else ""
+                    return {
+                        "title": clean_title,
+                        "filename": filename,
+                        "filesize": chosen_size,
+                        "duration": duration,
+                        "formats": tier_formats
+                    }
+
         bin_name = resolve_binary("yt-dlp") or resolve_binary("youtube-dl") or "yt-dlp"
         cmd = [
             bin_name,
@@ -349,6 +414,14 @@ class YTDLPDownloader:
             duration = data.get("duration") or 0
 
             tier_formats = cls._parse_formats_and_tiers(data, url)
+            with cls._cache_lock:
+                cls._media_info_cache[url] = (now, {
+                    "title": clean_title,
+                    "ext": ext,
+                    "duration": duration,
+                    "formats": tier_formats
+                })
+
             chosen_size = 0
             if quality:
                 q_str = str(quality).lower().strip()

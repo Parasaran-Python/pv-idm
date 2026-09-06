@@ -10,6 +10,9 @@ from idm_core.ytdlp_downloader import YTDLPDownloader
 
 
 class TestYTDLPDownloader(unittest.TestCase):
+    def setUp(self):
+        YTDLPDownloader.clear_cache()
+
     def test_platform_url_detection(self):
         yt_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
         vimeo_url = "https://vimeo.com/76979871"
@@ -632,6 +635,41 @@ class TestYTDLPDownloader(unittest.TestCase):
         self.assertEqual(progress_events[0]["status"], "assembling")
         self.assertEqual(progress_events[0]["speed"], 0.0)
         self.assertEqual(progress_events[0]["eta"], 0.0)
+
+    def test_extract_media_formats_and_probe_cached(self):
+        """Repeated extract_media_formats and probe_media_info calls within TTL should use cache."""
+        sample_json = {
+            "title": "Cached Video",
+            "ext": "mp4",
+            "duration": 60,
+            "formats": [
+                {"format_id": "1", "height": 1080, "fps": 30, "tbr": 4000, "vcodec": "avc1", "acodec": "none", "filesize": 20000000},
+                {"format_id": "2", "height": None, "vcodec": "none", "acodec": "mp4a", "filesize": 2000000}
+            ]
+        }
+        mock_res = unittest.mock.MagicMock()
+        mock_res.returncode = 0
+        mock_res.stdout = json.dumps(sample_json)
+
+        test_url = "https://youtube.com/watch?v=cache_test_123"
+
+        with unittest.mock.patch.object(YTDLPDownloader, "is_ytdlp_available", return_value=True), \
+             unittest.mock.patch("subprocess.run", return_value=mock_res) as mock_run:
+            # 1. First call -> executes subprocess
+            fmts1 = YTDLPDownloader.extract_media_formats(test_url)
+            self.assertEqual(len(fmts1), 2)
+            self.assertEqual(mock_run.call_count, 1)
+
+            # 2. Second call -> uses cache, no extra subprocess call
+            fmts2 = YTDLPDownloader.extract_media_formats(test_url)
+            self.assertEqual(len(fmts2), 2)
+            self.assertEqual(mock_run.call_count, 1)
+
+            # 3. probe_media_info call -> uses cache, no extra subprocess call
+            probe = YTDLPDownloader.probe_media_info(test_url, quality="1080")
+            self.assertEqual(probe["title"], "Cached Video")
+            self.assertEqual(probe["filesize"], 22000000)
+            self.assertEqual(mock_run.call_count, 1)
 
 
 if __name__ == "__main__":
