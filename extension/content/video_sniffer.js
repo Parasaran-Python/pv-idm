@@ -259,7 +259,9 @@
       items.forEach((item) => {
         const row = document.createElement("div");
         row.className = "idm-grabber-menu-item" + (item.disabled ? " idm-menu-item-disabled" : "");
-        const sizeStr = item.filesize && item.filesize > 0 ? ` <span class="idm-menu-item-size">(${formatBytes(item.filesize)})</span>` : "";
+        const isApprox = item.filesize_approx === true;
+        const approxStr = isApprox ? " <span class=\"idm-menu-item-approx\">(approx)</span>" : "";
+        const sizeStr = item.filesize && item.filesize > 0 ? ` <span class="idm-menu-item-size">(${formatBytes(item.filesize)})</span>${approxStr}` : (isApprox ? ` <span class="idm-menu-item-size">Unknown size${approxStr}</span>` : "");
         row.innerHTML = `
           <span class="idm-menu-item-text">${item.label}${sizeStr}</span>
           <span class="idm-menu-item-badge">${item.format}</span>
