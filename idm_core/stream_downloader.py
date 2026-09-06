@@ -116,7 +116,10 @@ class HLSParser:
 
             bandwidth = 0
             variant_url = m3u8_url
-            if any(line.startswith("#EXT-X-STREAM-INF") for line in lines):
+            is_master = any(line.startswith("#EXT-X-STREAM-INF") for line in lines)
+            is_live = False
+
+            if is_master:
                 for i, line in enumerate(lines):
                     if line.startswith("#EXT-X-STREAM-INF"):
                         match = re.search(r"BANDWIDTH=(\d+)", line)
@@ -135,13 +138,21 @@ class HLSParser:
                     if match:
                         total_duration += float(match.group(1))
 
+            # Check if this is a live stream (no EXT-X-ENDLIST in media playlist)
+            if not is_master:
+                # For media playlist, check if current content has ENDLIST
+                is_live = not any(line == "#EXT-X-ENDLIST" for line in lines)
+            else:
+                # For master playlist, check the variant playlist for ENDLIST
+                is_live = not any(line == "#EXT-X-ENDLIST" for line in lines)
+
             used_fallback = False
             if not bandwidth:
                 bandwidth = 2500000  # Default fallback 2.5 Mbps
                 used_fallback = True
 
             estimated_size = int((bandwidth / 8) * total_duration) if total_duration > 0 else 0
-            is_approx = total_duration <= 0 or used_fallback
+            is_approx = total_duration <= 0 or used_fallback or is_live
             return {
                 "duration": total_duration,
                 "bandwidth": bandwidth,
@@ -204,6 +215,7 @@ class HLSParser:
 
                                 # Estimate duration from variant if possible
                                 duration = 0.0
+                                is_live = False
                                 try:
                                     variant_content = parser._fetch_text(variant_url)
                                     variant_lines = [l.strip() for l in variant_content.splitlines() if l.strip()]
@@ -212,10 +224,12 @@ class HLSParser:
                                             match = re.search(r"#EXTINF:([\d.]+)", vl)
                                             if match:
                                                 duration += float(match.group(1))
+                                    # Live stream detection: no EXT-X-ENDLIST in variant playlist
+                                    is_live = not any(l == "#EXT-X-ENDLIST" for l in variant_lines)
                                 except Exception:
                                     pass
 
-                                is_approx = duration <= 0 or bw <= 0
+                                is_approx = duration <= 0 or bw <= 0 or is_live
                                 fmt = {
                                     "label": label,
                                     "height": height,
@@ -241,7 +255,9 @@ class HLSParser:
                         if match:
                             total_duration += float(match.group(1))
 
-                is_approx = total_duration <= 0
+                # Live stream detection: no EXT-X-ENDLIST in media playlist
+                is_live = not any(line == "#EXT-X-ENDLIST" for line in lines)
+                is_approx = total_duration <= 0 or is_live
                 fmt = {
                     "label": "Best Quality",
                     "height": 0,

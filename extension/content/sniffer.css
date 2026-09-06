@@ -172,3 +172,12 @@
   font-weight: 500 !important;
   margin-left: 5px !important;
 }
+
+.idm-menu-item-approx {
+  color: #8899a6 !important;
+  font-size: 10px !important;
+  font-style: italic !important;
+  font-weight: 400 !important;
+  margin-left: 4px !important;
+  opacity: 0.8 !important;
+}
