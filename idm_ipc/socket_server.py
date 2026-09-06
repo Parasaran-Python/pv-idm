@@ -100,23 +100,28 @@ class IPCServer:
                 url = msg.get("url")
                 if not url:
                     return {"status": "error", "error": "URL is required"}
-                
-                # If direct DASH/HLS stream manifest, extract formats directly (fast-path)
+
+                # 1. Video platforms (YouTube, Vimeo, Twitch, etc.) -> use yt-dlp first
+                from idm_core.ytdlp_downloader import YTDLPDownloader
+                if YTDLPDownloader.is_video_platform_url(url):
+                    formats = YTDLPDownloader.extract_media_formats(url)
+                    if formats:
+                        return {"status": "ok", "formats": formats}
+
+                # 2. Direct DASH/HLS stream manifest (.mpd, .m3u8) -> fast-path
                 from idm_core.stream_downloader import StreamDownloader
-                if StreamDownloader.detect_stream_type(url) in ["dash", "hls"]:
+                stype = StreamDownloader.detect_stream_type(url)
+                if stype in ["dash", "hls"]:
                     formats = StreamDownloader.extract_formats(url)
                     if formats:
                         return {"status": "ok", "formats": formats}
 
-                # Try yt-dlp for known video platforms (YouTube, Vimeo, etc.)
-                from idm_core.ytdlp_downloader import YTDLPDownloader
+                # 3. Fallback: yt-dlp then StreamDownloader
                 formats = YTDLPDownloader.extract_media_formats(url)
-                
-                # Fallback to StreamDownloader if yt-dlp returns no formats
-                if not formats:
+                if not formats and stype in ["dash", "hls"]:
                     formats = StreamDownloader.extract_formats(url)
-                
-                return {"status": "ok", "formats": formats}
+
+                return {"status": "ok", "formats": formats or []}
 
             elif action in ["add_download", "intercept", "download", "download_url"]:
                 url = msg.get("url")

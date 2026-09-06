@@ -331,6 +331,14 @@ class TestStreamDownloader(unittest.TestCase):
         self.assertEqual(StreamDownloader.detect_stream_type("http://example.com/vod/stream.mpd?hdnea=xyz"), "dash")
         self.assertEqual(StreamDownloader.detect_stream_type("http://example.com/unknown", content="<MPD xmlns='...'>"), "dash")
         self.assertEqual(StreamDownloader.detect_stream_type("http://example.com/unknown", content="#EXTM3U\n..."), "hls")
+        self.assertEqual(StreamDownloader.detect_stream_type("http://example.com/unknown"), "")
+        self.assertEqual(StreamDownloader.detect_stream_type("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), "")
+        self.assertEqual(StreamDownloader.detect_stream_type("https://example.com/page.html", content="<html><body>Not HLS</body></html>"), "")
+
+    def test_extract_formats_non_hls_returns_empty(self):
+        with unittest.mock.patch.object(HLSParser, "_fetch_text", return_value="<!DOCTYPE html><html><body>Video Page</body></html>"):
+            formats = HLSParser.extract_formats("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+            self.assertEqual(formats, [])
 
     def test_extract_formats_and_quality_selection(self):
         multi_qual_mpd = """<?xml version="1.0" encoding="UTF-8"?>

@@ -86,6 +86,26 @@ class TestIPC(unittest.TestCase):
         self.assertEqual(dl_info["download"]["url"], "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
         self.assertEqual(dl_info["download"]["filename"], "dQw4w9WgXcQ.mp4")
 
+    def test_query_media_formats_routes_to_ytdlp_for_video_platforms(self):
+        client = IPCClient(self.config.socket_path)
+        self.assertTrue(client.is_server_running())
+
+        mock_formats = [
+            {"label": "1080p (Full HD)", "quality": "1080", "filesize": 16000000, "format": "MP4"},
+            {"label": "720p (HD)", "quality": "720", "filesize": 12000000, "format": "MP4"},
+            {"label": "Audio Only (MP3)", "quality": "audio", "filesize": 3000000, "format": "MP3"}
+        ]
+
+        with unittest.mock.patch("idm_core.ytdlp_downloader.YTDLPDownloader.is_video_platform_url", return_value=True), \
+             unittest.mock.patch("idm_core.ytdlp_downloader.YTDLPDownloader.extract_media_formats", return_value=mock_formats) as mock_extract:
+            res = client.send_request({
+                "action": "query_media_formats",
+                "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+            })
+            self.assertEqual(res.get("status"), "ok")
+            self.assertEqual(res.get("formats"), mock_formats)
+            self.assertTrue(mock_extract.called)
+
 
 if __name__ == "__main__":
     unittest.main()
