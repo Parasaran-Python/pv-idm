@@ -220,6 +220,20 @@ class DownloadProgressDialog(QDialog):
             self.limit_check.setEnabled(False)
             self.limit_slider.setEnabled(False)
 
+        elif self.status in ["assembling", "merging"]:
+            self.btn_pause.hide()
+            self.btn_cancel.show()
+            self.btn_hide.show()
+            self.btn_open.hide()
+            self.btn_open_folder.hide()
+            self.btn_close.hide()
+            self.status_label.setStyleSheet("font-weight: bold; color: #805ad5;")
+            self.status_label.setText("Merging audio & video...")
+            self.speed_label.setText("Processing...")
+            self.eta_label.setText("Finalizing...")
+            self.progress_bar.setValue(100)
+            self.progress_bar.setFormat("100% (Merging...)")
+
         elif self.status in ["paused", "stopped"]:
             self.btn_pause.show()
             self.btn_cancel.show()

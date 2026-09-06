@@ -4,6 +4,8 @@ Unit Tests for YTDLPDownloader & Video Platform Detection
 
 import unittest
 import unittest.mock
+from unittest.mock import patch, MagicMock
+import json
 from idm_core.ytdlp_downloader import YTDLPDownloader
 
 
@@ -394,9 +396,8 @@ class TestYTDLPDownloader(unittest.TestCase):
             self.assertIn("-S", cmd)
             s_idx = cmd.index("-S")
             self.assertIn("acodec:m4a", cmd[s_idx + 1])
-            self.assertIn("--postprocessor-args", cmd)
-            pp_idx = cmd.index("--postprocessor-args")
-            self.assertIn("Merger:-c:v copy -c:a aac", cmd[pp_idx + 1])
+            # Avoid forcing audio re-encoding so yt-dlp uses fast stream copy without stalling at 99%
+            self.assertNotIn("Merger:-c:v copy -c:a aac", cmd_str)
 
     def test_run_ytdlp_command_args_without_ffmpeg(self):
         from unittest.mock import patch, MagicMock
@@ -562,6 +563,75 @@ class TestYTDLPDownloader(unittest.TestCase):
             self.assertIn("LowerUA", cmd)
             self.assertIn("--referer", cmd)
             self.assertIn("https://youtube.com/watch?v=123", cmd)
+
+    def test_fps_none_vs_known_fps_sorting(self):
+        """Known fps (e.g. 25fps) should rank higher than unknown fps (None) matching yt-dlp."""
+        sample_json = {
+            "formats": [
+                {"format_id": "dash-1", "height": 1080, "fps": None, "tbr": 5500, "vcodec": "avc1", "acodec": "none", "filesize": 1780000000},
+                {"format_id": "hls-5196", "height": 1080, "fps": 25, "tbr": 5196, "vcodec": "avc1", "acodec": "none", "filesize": 1650000000},
+                {"format_id": "10", "height": None, "vcodec": "none", "acodec": "mp4a", "filesize": 31000000}
+            ]
+        }
+        mock_res = MagicMock()
+        mock_res.returncode = 0
+        mock_res.stdout = json.dumps(sample_json)
+
+        with patch.object(YTDLPDownloader, "is_ytdlp_available", return_value=True), \
+             patch("subprocess.run", return_value=mock_res):
+            formats = YTDLPDownloader.extract_media_formats("https://sonyliv.com/shows/adaalat/cursed-island")
+            fmt_1080 = next(f for f in formats if f["quality"] == "1080")
+            # Should prefer the 25fps stream (1650MB + 31MB = 1681MB) over unknown fps stream (1780MB + 31MB)
+            self.assertEqual(fmt_1080["filesize"], 1650000000 + 31000000)
+
+    def test_approximate_fragment_estimate_spike_resistance_with_probe(self):
+        """When total_bytes is probed/initialized, transient approximate fragment spikes (~ 3.35GiB) must not clobber it."""
+        probed_size = 1650000000
+        downloader = YTDLPDownloader("spike-test", "https://site.com/video", "/tmp/out.mp4", total_bytes=probed_size)
+
+        downloader._parse_line("[download] Destination: /tmp/out.mp4")
+        # yt-dlp outputs early fragment spike
+        downloader._parse_line("[download]   0.5% of ~   3.35GiB at  5.00MiB/s ETA 10:00")
+        self.assertEqual(downloader.total_bytes, probed_size)
+
+        # Later fragment converges
+        downloader._parse_line("[download]  50.0% of ~   1.65GiB at  5.00MiB/s ETA 02:00")
+        self.assertEqual(downloader.total_bytes, probed_size)
+
+    def test_approximate_fragment_estimate_convergence_without_probe(self):
+        """When total_bytes is not known in advance, it should follow yt-dlp's refined estimate downwards without max() ratcheting."""
+        downloader = YTDLPDownloader("converge-test", "https://site.com/video", "/tmp/out.mp4", total_bytes=0)
+
+        downloader._parse_line("[download] Destination: /tmp/out.mp4")
+        downloader._parse_line("[download]   0.5% of ~   3.35GiB at  5.00MiB/s ETA 10:00")
+        spike_bytes = int(3.35 * 1024**3)
+        self.assertEqual(downloader.total_bytes, spike_bytes)
+
+        downloader._parse_line("[download]  25.0% of ~   2.20GiB at  5.00MiB/s ETA 05:00")
+        refined_bytes_1 = int(2.20 * 1024**3)
+        self.assertEqual(downloader.total_bytes, refined_bytes_1)
+
+        downloader._parse_line("[download]  75.0% of ~   1.65GiB at  5.00MiB/s ETA 01:00")
+        refined_bytes_2 = int(1.65 * 1024**3)
+        self.assertEqual(downloader.total_bytes, refined_bytes_2)
+
+    def test_merger_line_triggers_assembling_status(self):
+        """When yt-dlp enters post-processing merger, status transitions to assembling and emits progress."""
+        progress_events = []
+        downloader = YTDLPDownloader(
+            "merger-test",
+            "https://site.com/video",
+            "/tmp/out.mp4",
+            total_bytes=100000,
+            on_progress=lambda d_id, s: progress_events.append(s)
+        )
+        downloader._parse_line("[Merger] Merging formats into \"/tmp/out.mp4\"")
+        self.assertEqual(downloader.status, "assembling")
+        self.assertEqual(downloader.downloaded_bytes, 100000)
+        self.assertEqual(len(progress_events), 1)
+        self.assertEqual(progress_events[0]["status"], "assembling")
+        self.assertEqual(progress_events[0]["speed"], 0.0)
+        self.assertEqual(progress_events[0]["eta"], 0.0)
 
 
 if __name__ == "__main__":

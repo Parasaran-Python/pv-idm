@@ -639,26 +639,40 @@
     }
 
     if (request.action === "get_page_metadata") {
-      if (window !== window.top) return false;
+      if (window !== window.top) return;
       try {
         let thumbnail = null;
-        const ogImage = document.querySelector('meta[property="og:image"], meta[name="og:image"], meta[property="og:image:url"]');
-        if (ogImage && ogImage.content) {
-          thumbnail = resolveUrl(ogImage.content);
-        } else {
-          const twitterImage = document.querySelector('meta[name="twitter:image"], meta[name="twitter:image:src"]');
-          if (twitterImage && twitterImage.content) {
-            thumbnail = resolveUrl(twitterImage.content);
-          } else {
-            const metaImage = document.querySelector('meta[itemprop="image"]');
-            if (metaImage && metaImage.content) {
-              thumbnail = resolveUrl(metaImage.content);
-            } else {
-              const videoPoster = document.querySelector('video[poster]');
-              if (videoPoster && videoPoster.poster) {
-                thumbnail = resolveUrl(videoPoster.poster);
+        const metaSelectors = [
+          'meta[property="og:image"]',
+          'meta[property="og:image:secure_url"]',
+          'meta[name="og:image"]',
+          'meta[name="og:image:secure_url"]',
+          'meta[property="og:image:url"]',
+          'meta[name="twitter:image"]',
+          'meta[name="twitter:image:src"]',
+          'meta[property="twitter:image"]',
+          'meta[itemprop="image"]',
+          'meta[name="thumbnail"]',
+          'link[rel="image_src"]',
+          'link[rel="apple-touch-icon"]'
+        ];
+        for (const sel of metaSelectors) {
+          const el = document.querySelector(sel);
+          if (el) {
+            const val = el.getAttribute("content") || el.getAttribute("href") || el.content || el.href;
+            if (val) {
+              const res = resolveUrl(val);
+              if (res) {
+                thumbnail = res;
+                break;
               }
             }
+          }
+        }
+        if (!thumbnail) {
+          const videoPoster = document.querySelector("video[poster]");
+          if (videoPoster && videoPoster.poster) {
+            thumbnail = resolveUrl(videoPoster.poster);
           }
         }
         sendResponse({ thumbnail });

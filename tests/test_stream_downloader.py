@@ -536,7 +536,7 @@ seg3.ts
 
     def test_dash_dynamic_manifest(self):
         """Test that dynamic DASH manifests (no mediaPresentationDuration) are marked as approximate."""
-        dynamic_mpd = """<?xml version="1.0" encoding="UTF-8"?>
+        dynamic_mpd = r"""<?xml version="1.0" encoding="UTF-8"?>
 <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="dynamic">
   <Period>
     <AdaptationSet mimeType="video/mp4" contentType="video">
@@ -574,6 +574,20 @@ seg3.ts
                 self.assertTrue(fmt["filesize_approx"], "Dynamic DASH formats should be approximate")
         finally:
             os.unlink(mpd_path)
+
+    def test_stream_downloader_assembling_status(self):
+        progress_events = []
+        downloader = StreamDownloader(
+            "stream-asm",
+            self.m3u8_url,
+            os.path.join(self.test_dir, "asm.mp4"),
+            on_progress=lambda did, s: progress_events.append(s)
+        )
+        downloader.segment_files = []
+        downloader._finalize_stream()
+        self.assertEqual(downloader.status, "completed")
+        statuses = [e["status"] for e in progress_events]
+        self.assertIn("assembling", statuses)
 
 
 if __name__ == "__main__":

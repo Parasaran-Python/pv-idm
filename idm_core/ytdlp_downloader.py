@@ -58,6 +58,7 @@ class YTDLPDownloader:
 
         self.status = "idle"
         self.total_bytes = total_bytes
+        self._initial_total_bytes = total_bytes
         self.downloaded_bytes = 0
         self.speed = 0.0
         self.eta = 0.0
@@ -238,7 +239,7 @@ class YTDLPDownloader:
                 has_audio = True
 
             if h and vcodec != "none" and h > 0:
-                fps = f.get("fps") or 30
+                fps = f.get("fps") or 0
                 raw_sz = get_format_size(f)
                 tbr = f.get("tbr") or f.get("vbr") or 0
                 is_separate_video = (acodec == "none")
@@ -426,11 +427,14 @@ class YTDLPDownloader:
                 info = self.probe_media_info(self.url, quality=self.quality or self.headers.get("quality"))
                 if info and info.get("filesize", 0) > 0:
                     self.total_bytes = info["filesize"]
+                    self._initial_total_bytes = self.total_bytes
             except Exception:
                 pass
 
     def _run_ytdlp(self):
         self._resolve_initial_size_if_needed()
+        if self._initial_total_bytes <= 0 and self.total_bytes > 0:
+            self._initial_total_bytes = self.total_bytes
         self._completed_streams_bytes = 0
         self._current_stream_total = 0
         self._current_stream_downloaded = 0
@@ -495,7 +499,6 @@ class YTDLPDownloader:
                 cmd.extend(["-S", "acodec:m4a,acodec:aac"])
                 if not self.save_path.lower().endswith((".mkv",)):
                     cmd.extend(["--merge-output-format", "mp4"])
-                    cmd.extend(["--postprocessor-args", "Merger:-c:v copy -c:a aac"])
         else:
             # Without ffmpeg, yt-dlp cannot merge separate video + audio streams.
             # Requesting bestvideo+bestaudio without ffmpeg results in unmerged files with silent video.
@@ -606,6 +609,24 @@ class YTDLPDownloader:
         if not line:
             return
 
+        # Detect merger / assembling phase
+        if any(marker in line for marker in ["[Merger]", "[Fixup", "[VideoConvertor]", "[ExtractAudio]", "Merging formats into"]):
+            self.status = "assembling"
+            self.speed = 0.0
+            self.eta = 0.0
+            if self.total_bytes > 0:
+                self.downloaded_bytes = self.total_bytes
+            if self.on_progress:
+                self.on_progress(self.download_id, {
+                    "status": "assembling",
+                    "downloaded_bytes": self.downloaded_bytes,
+                    "total_bytes": self.total_bytes,
+                    "speed": 0.0,
+                    "eta": 0.0,
+                    "save_path": self.save_path
+                })
+            return
+
         # Check for destination / new stream header transition
         if "[download] Destination:" in line:
             if self._current_stream_total > 0:
@@ -627,10 +648,11 @@ class YTDLPDownloader:
 
             self._last_stream_pct = pct
 
-            size_match = re.search(r"of\s+(?:~\s*)?(\d+(?:\.\d+)?)\s*([KMGT]?i?B)", line, re.I)
+            size_match = re.search(r"of\s+(~)?\s*(\d+(?:\.\d+)?)\s*([KMGT]?i?B)", line, re.I)
             if size_match:
-                val = float(size_match.group(1))
-                unit = size_match.group(2).upper()
+                is_approx = bool(size_match.group(1))
+                val = float(size_match.group(2))
+                unit = size_match.group(3).upper()
                 mult = {"B": 1, "KB": 1024, "KIB": 1024, "MB": 1024**2, "MIB": 1024**2, "GB": 1024**3, "GIB": 1024**3}.get(unit, 1024**2)
                 self._current_stream_total = int(val * mult)
                 self._current_stream_downloaded = int((pct / 100.0) * self._current_stream_total)
@@ -638,10 +660,18 @@ class YTDLPDownloader:
                 self.downloaded_bytes = self._completed_streams_bytes + self._current_stream_downloaded
                 if self._completed_streams_bytes > 0:
                     self.total_bytes = self._completed_streams_bytes + self._current_stream_total
+                elif is_approx:
+                    if self._initial_total_bytes > 0 and self.downloaded_bytes <= self._initial_total_bytes:
+                        self.total_bytes = self._initial_total_bytes
+                    else:
+                        self.total_bytes = self._current_stream_total
                 elif self.total_bytes <= 0:
                     self.total_bytes = self._current_stream_total
                 else:
                     self.total_bytes = max(self.total_bytes, self._current_stream_total)
+
+                if self.downloaded_bytes > self.total_bytes:
+                    self.total_bytes = self.downloaded_bytes
 
             speed_match = re.search(r"at\s+(\d+(?:\.\d+)?)\s*([KMGT]?i?B)/s", line, re.I)
             if speed_match:
@@ -657,6 +687,7 @@ class YTDLPDownloader:
                 else:
                     self.eta = int(eta_match.group(1)) * 60 + int(eta_match.group(2))
 
+            self.status = "downloading"
             if self.on_progress:
                 self.on_progress(self.download_id, {
                     "status": "downloading",

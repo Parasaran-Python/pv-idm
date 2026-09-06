@@ -166,12 +166,39 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function fetchPageThumbnail(tabId) {
+    if (!tabId) return null;
+    // 1. Try via background service worker
     try {
-      const response = await chrome.runtime.sendMessage({ action: "get_page_metadata", tabId });
-      if (response && response.thumbnail) {
-        return response.thumbnail;
-      }
+      const response = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ action: "get_page_metadata", tabId }, (res) => {
+          if (chrome.runtime && chrome.runtime.lastError) {
+            resolve(null);
+          } else {
+            resolve(res && res.thumbnail ? res.thumbnail : null);
+          }
+        });
+      });
+      if (response) return response;
     } catch (e) {}
+
+    // 2. Direct fallback to active tab
+    try {
+      const directThumb = await new Promise((resolve) => {
+        const api = (typeof browser !== "undefined" && browser.tabs && browser.tabs.sendMessage) ? browser.tabs : chrome.tabs;
+        const res = api.sendMessage(tabId, { action: "get_page_metadata" }, (res) => {
+          if (chrome.runtime && chrome.runtime.lastError) {
+            resolve(null);
+          } else {
+            resolve(res && res.thumbnail ? res.thumbnail : null);
+          }
+        });
+        if (res && typeof res.then === "function") {
+          res.then((r) => resolve(r && r.thumbnail ? r.thumbnail : null)).catch(() => resolve(null));
+        }
+      });
+      if (directThumb) return directThumb;
+    } catch (e) {}
+
     return null;
   }
 
@@ -293,6 +320,7 @@ document.addEventListener("DOMContentLoaded", () => {
             img.className = "media-item-thumb";
             img.alt = item.label || "Video thumbnail";
             img.loading = "lazy";
+            img.referrerPolicy = "no-referrer";
             img.addEventListener("error", () => {
               const placeholder = createPlaceholder();
               img.replaceWith(placeholder);
@@ -361,6 +389,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 img.className = "media-item-thumb";
                 img.alt = "Video thumbnail";
                 img.loading = "lazy";
+                img.referrerPolicy = "no-referrer";
                 img.addEventListener("error", () => {
                   const newPlaceholder = createPlaceholder();
                   img.replaceWith(newPlaceholder);

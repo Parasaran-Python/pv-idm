@@ -39,6 +39,22 @@ class TestGUIDialogs(unittest.TestCase):
         })
         self.assertEqual(dialog.status_label.text(), "Downloading")
 
+    def test_download_progress_dialog_assembling_status(self):
+        dialog = DownloadProgressDialog(download_id="dl-test-merging", filename="video.mp4")
+        dialog.update_progress({
+            "status": "assembling",
+            "downloaded_bytes": 1000000,
+            "total_bytes": 1000000,
+            "speed": 0,
+            "eta": 0,
+            "resumable": True
+        })
+        self.assertEqual(dialog.status_label.text(), "Merging audio & video...")
+        self.assertEqual(dialog.progress_bar.value(), 100)
+        self.assertEqual(dialog.progress_bar.format(), "100% (Merging...)")
+        self.assertEqual(dialog.speed_label.text(), "Processing...")
+        self.assertEqual(dialog.eta_label.text(), "Finalizing...")
+
     def test_queue_scheduler_dialog(self):
         dialog = QueueSchedulerDialog()
         self.assertIsNotNone(dialog)
