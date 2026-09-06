@@ -589,7 +589,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           setTimeout(() => resolve({ thumbnail: null }), timeoutMs);
         });
         const messagePromise = new Promise((resolve) => {
-          chrome.tabs.sendMessage(tabId, { action: "get_page_metadata" }, (response) => {
+          chrome.tabs.sendMessage(tabId, { action: "get_page_metadata" }, { frameId: 0 }, (response) => {
             if (chrome.runtime.lastError || !response) {
               resolve({ thumbnail: null });
             } else {

@@ -629,21 +629,24 @@
     }
 
     function resolveUrl(url) {
+      if (!url || typeof url !== "string" || !url.trim()) return null;
       try {
-        return new URL(url, window.location.href).href;
+        const resolved = new URL(url.trim(), window.location.href).href;
+        return /^https?:\/\//i.test(resolved) ? resolved : null;
       } catch {
         return null;
       }
     }
 
     if (request.action === "get_page_metadata") {
+      if (window !== window.top) return false;
       try {
         let thumbnail = null;
-        const ogImage = document.querySelector('meta[property="og:image"]');
+        const ogImage = document.querySelector('meta[property="og:image"], meta[name="og:image"], meta[property="og:image:url"]');
         if (ogImage && ogImage.content) {
           thumbnail = resolveUrl(ogImage.content);
         } else {
-          const twitterImage = document.querySelector('meta[name="twitter:image"]');
+          const twitterImage = document.querySelector('meta[name="twitter:image"], meta[name="twitter:image:src"]');
           if (twitterImage && twitterImage.content) {
             thumbnail = resolveUrl(twitterImage.content);
           } else {
@@ -651,15 +654,12 @@
             if (metaImage && metaImage.content) {
               thumbnail = resolveUrl(metaImage.content);
             } else {
-              const firstImg = document.querySelector("img");
-              if (firstImg && firstImg.src) {
-                thumbnail = resolveUrl(firstImg.src);
+              const videoPoster = document.querySelector('video[poster]');
+              if (videoPoster && videoPoster.poster) {
+                thumbnail = resolveUrl(videoPoster.poster);
               }
             }
           }
-        }
-        if (thumbnail && (thumbnail.startsWith("data:") || thumbnail.startsWith("blob:"))) {
-          thumbnail = null;
         }
         sendResponse({ thumbnail });
       } catch (e) {

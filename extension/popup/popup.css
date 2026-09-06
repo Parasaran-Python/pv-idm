@@ -220,14 +220,6 @@ body {
   border-color: #4299e1;
 }
 
-.media-item-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  overflow: hidden;
-  flex: 1;
-}
-
 .media-item-title {
   white-space: nowrap;
   overflow: hidden;
@@ -254,6 +246,7 @@ body {
   font-weight: bold;
   border: 1px solid #4a5568;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .footer {

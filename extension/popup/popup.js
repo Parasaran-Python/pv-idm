@@ -138,21 +138,26 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function extractYouTubeVideoId(url) {
-    if (!url) return null;
+    if (!url || typeof url !== "string") return null;
     try {
       const parsed = new URL(url);
       const host = parsed.hostname.toLowerCase();
-      if (host.includes("youtube.com")) {
-        if (parsed.pathname.startsWith("/watch")) {
-          return parsed.searchParams.get("v");
-        } else if (parsed.pathname.startsWith("/shorts/") || parsed.pathname.startsWith("/live/") || parsed.pathname.startsWith("/embed/")) {
-          return parsed.pathname.split("/").pop();
-        }
-      } else if (host.includes("youtu.be")) {
-        return parsed.pathname.slice(1);
+      if (!/(?:^|\.)(?:youtube\.com|youtu\.be)$/.test(host)) {
+        return null;
       }
-    } catch (e) {}
-    return null;
+      if (host.includes("youtu.be")) {
+        const id = parsed.pathname.split("/").filter(Boolean)[0];
+        return id && /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
+      }
+      if (parsed.pathname.startsWith("/watch")) {
+        const id = parsed.searchParams.get("v");
+        return id && /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
+      }
+      const match = parsed.pathname.match(/^\/(?:shorts|live|embed)\/([a-zA-Z0-9_-]{11})/);
+      return match ? match[1] : null;
+    } catch {
+      return null;
+    }
   }
 
   function getYouTubeThumbnailUrl(videoId, quality = "hqdefault") {
@@ -204,11 +209,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
         mediaCard.style.display = "block";
         mediaList.innerHTML = "";
-
-        let pageThumbnail = null;
-        if (!isYouTube && rawStreams.length > 0) {
-          pageThumbnail = await fetchPageThumbnail(activeTab.id);
-        }
 
         const validStreams = [];
         if (isYouTube) {
@@ -262,8 +262,6 @@ document.addEventListener("DOMContentLoaded", () => {
             priority = 1;
             const ytId = extractYouTubeVideoId(streamUrl);
             thumbnail = getYouTubeThumbnailUrl(ytId);
-          } else {
-            thumbnail = pageThumbnail;
           }
 
           validStreams.push({ url: streamUrl, label: label, badge: badge, priority: priority, filename: filename, thumbnail });
@@ -272,38 +270,127 @@ document.addEventListener("DOMContentLoaded", () => {
         validStreams.sort((a, b) => a.priority - b.priority);
 
         const seen = new Set();
-        validStreams.forEach((item) => {
+        function createPlaceholder() {
+          const placeholder = document.createElement("div");
+          placeholder.className = "media-item-thumb-placeholder";
+          placeholder.setAttribute("role", "img");
+          placeholder.setAttribute("aria-label", "No thumbnail available");
+          return placeholder;
+        }
+
+        function renderStreamItem(item) {
           if (seen.has(item.url)) return;
           seen.add(item.url);
 
           const row = document.createElement("div");
           row.className = "media-item";
           row.title = item.url;
+          row.dataset.url = item.url;
           const cleanUrlHint = item.url.split("?")[0].replace(/^https?:\/\//, "");
 
           if (item.thumbnail) {
             const img = document.createElement("img");
             img.className = "media-item-thumb";
-            img.src = item.thumbnail;
             img.alt = item.label || "Video thumbnail";
             img.loading = "lazy";
             img.addEventListener("error", () => {
-              img.style.display = "none";
+              const placeholder = createPlaceholder();
+              img.replaceWith(placeholder);
             });
+            img.src = item.thumbnail;
             row.appendChild(img);
           } else {
-            const placeholder = document.createElement("div");
-            placeholder.className = "media-item-thumb-placeholder";
-            placeholder.setAttribute("aria-label", "No thumbnail available");
-            row.appendChild(placeholder);
+            row.appendChild(createPlaceholder());
           }
 
           const infoDiv = document.createElement("div");
           infoDiv.className = "media-item-info";
-          infoDiv.innerHTML = `
-            <span class="media-item-title">${item.label}</span>
-            <span class="media-item-url-hint">${cleanUrlHint}</span>
-          `;
+
+          const titleSpan = document.createElement("span");
+          titleSpan.className = "media-item-title";
+          titleSpan.textContent = item.label;
+
+          const hintSpan = document.createElement("span");
+          hintSpan.className = "media-item-url-hint";
+          hintSpan.textContent = cleanUrlHint;
+
+          infoDiv.appendChild(titleSpan);
+          infoDiv.appendChild(hintSpan);
+          row.appendChild(infoDiv);
+
+          const badge = document.createElement("span");
+          badge.className = "media-item-badge";
+          badge.textContent = item.badge;
+          row.appendChild(badge);
+
+          row.addEventListener("click", () => {
+            const title = activeTab.title ? activeTab.title.replace(/[\\/:*?"<>|]/g, "_").trim() : "video";
+            const badgeLow = item.badge.toLowerCase();
+            const isStreamOrPlatform = badgeLow === "hls" || badgeLow === "dash" || badgeLow === "youtube";
+            const ext = isStreamOrPlatform ? "mp4" : badgeLow;
+            const quality = isStreamOrPlatform ? "best" : null;
+            chrome.runtime.sendMessage({
+              action: "download_media",
+              url: item.url,
+              page_url: activeTab.url || "",
+              filename: `${title}.${ext}`,
+              quality: "best"
+            }, () => {
+              if (chrome.runtime.lastError) { /* ignore */ }
+              window.close();
+            });
+          });
+          mediaList.appendChild(row);
+        }
+
+        // Render all stream items immediately with placeholders/YouTube thumbnails
+        validStreams.forEach(renderStreamItem);
+
+        // Fetch page thumbnail asynchronously for non-YouTube streams
+        if (!isYouTube && rawStreams.length > 0) {
+          fetchPageThumbnail(activeTab.id).then((thumbUrl) => {
+            if (!thumbUrl) return;
+            // Update all non-YouTube stream items with the fetched thumbnail
+            document.querySelectorAll(".media-item[data-url]").forEach((row) => {
+              const itemUrl = row.dataset.url;
+              const isYouTubeStream = itemUrl.includes("youtube.com") || itemUrl.includes("youtu.be");
+              if (isYouTubeStream) return;
+              const placeholder = row.querySelector(".media-item-thumb-placeholder");
+              if (placeholder) {
+                const img = document.createElement("img");
+                img.className = "media-item-thumb";
+                img.alt = "Video thumbnail";
+                img.loading = "lazy";
+                img.addEventListener("error", () => {
+                  const newPlaceholder = createPlaceholder();
+                  img.replaceWith(newPlaceholder);
+                });
+                img.src = thumbUrl;
+                placeholder.replaceWith(img);
+              }
+            });
+          });
+        }
+            });
+            img.src = item.thumbnail;
+            row.appendChild(img);
+          } else {
+            row.appendChild(createPlaceholder());
+          }
+
+          const infoDiv = document.createElement("div");
+          infoDiv.className = "media-item-info";
+
+          const titleSpan = document.createElement("span");
+          titleSpan.className = "media-item-title";
+          titleSpan.textContent = item.label;
+
+          const hintSpan = document.createElement("span");
+          hintSpan.className = "media-item-url-hint";
+          hintSpan.textContent = cleanUrlHint;
+
+          infoDiv.appendChild(titleSpan);
+          infoDiv.appendChild(hintSpan);
           row.appendChild(infoDiv);
 
           const badge = document.createElement("span");
