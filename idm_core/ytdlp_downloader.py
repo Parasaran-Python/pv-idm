@@ -11,7 +11,7 @@ import subprocess
 import threading
 import time
 import urllib.parse
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from idm_core.config import Config
 from idm_core.platform import resolve_binary
 
