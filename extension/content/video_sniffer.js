@@ -627,6 +627,46 @@
       sendResponse({ links: links });
       return true;
     }
+
+    function resolveUrl(url) {
+      if (!url || typeof url !== "string" || !url.trim()) return null;
+      try {
+        const resolved = new URL(url.trim(), window.location.href).href;
+        return /^https?:\/\//i.test(resolved) ? resolved : null;
+      } catch {
+        return null;
+      }
+    }
+
+    if (request.action === "get_page_metadata") {
+      if (window !== window.top) return false;
+      try {
+        let thumbnail = null;
+        const ogImage = document.querySelector('meta[property="og:image"], meta[name="og:image"], meta[property="og:image:url"]');
+        if (ogImage && ogImage.content) {
+          thumbnail = resolveUrl(ogImage.content);
+        } else {
+          const twitterImage = document.querySelector('meta[name="twitter:image"], meta[name="twitter:image:src"]');
+          if (twitterImage && twitterImage.content) {
+            thumbnail = resolveUrl(twitterImage.content);
+          } else {
+            const metaImage = document.querySelector('meta[itemprop="image"]');
+            if (metaImage && metaImage.content) {
+              thumbnail = resolveUrl(metaImage.content);
+            } else {
+              const videoPoster = document.querySelector('video[poster]');
+              if (videoPoster && videoPoster.poster) {
+                thumbnail = resolveUrl(videoPoster.poster);
+              }
+            }
+          }
+        }
+        sendResponse({ thumbnail });
+      } catch (e) {
+        sendResponse({ thumbnail: null });
+      }
+      return true;
+    }
   });
 
 })();

@@ -576,6 +576,36 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === "get_page_metadata") {
+    (async () => {
+      try {
+        const tabId = request.tabId;
+        if (!tabId) {
+          sendResponse({ thumbnail: null });
+          return;
+        }
+        const timeoutMs = 3000;
+        const timeoutPromise = new Promise((resolve) => {
+          setTimeout(() => resolve({ thumbnail: null }), timeoutMs);
+        });
+        const messagePromise = new Promise((resolve) => {
+          chrome.tabs.sendMessage(tabId, { action: "get_page_metadata" }, { frameId: 0 }, (response) => {
+            if (chrome.runtime.lastError || !response) {
+              resolve({ thumbnail: null });
+            } else {
+              resolve({ thumbnail: response.thumbnail || null });
+            }
+          });
+        });
+        const result = await Promise.race([messagePromise, timeoutPromise]);
+        sendResponse(result);
+      } catch (err) {
+        sendResponse({ thumbnail: null });
+      }
+    })();
+    return true;
+  }
+
   if (request.action === "record_media_stream") {
     (async () => {
       try {
