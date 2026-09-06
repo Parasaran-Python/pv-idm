@@ -379,6 +379,202 @@ class TestStreamDownloader(unittest.TestCase):
         self.assertEqual(len(tracks_audio["video_segments"]), 0)
         self.assertTrue(len(tracks_audio["audio_segments"]) > 0)
 
+    def test_hls_live_stream_detection(self):
+        """Test that live HLS streams (missing EXT-X-ENDLIST) are marked as approximate."""
+        # Live master playlist (variant has no EXT-X-ENDLIST)
+        live_master = """#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1280x720
+live_720p.m3u8
+"""
+        live_variant = """#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXTINF:10.0,
+seg1.ts
+#EXTINF:10.0,
+seg2.ts
+"""
+        # VOD master playlist (variant has EXT-X-ENDLIST)
+        vod_master = """#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1280x720
+vod_720p.m3u8
+"""
+        vod_variant = """#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXTINF:10.0,
+seg1.ts
+#EXTINF:10.0,
+seg2.ts
+#EXT-X-ENDLIST
+"""
+        # Live media playlist (no EXT-X-ENDLIST)
+        live_media = """#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXTINF:10.0,
+seg1.ts
+#EXTINF:10.0,
+seg2.ts
+"""
+        # VOD media playlist (with EXT-X-ENDLIST)
+        vod_media = """#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXTINF:10.0,
+seg1.ts
+#EXTINF:10.0,
+seg2.ts
+#EXT-X-ENDLIST
+"""
+        import tempfile
+        import os
+        import shutil
+        from pathlib import Path
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # Write test files
+            with open(os.path.join(temp_dir, 'live_master.m3u8'), 'w') as f:
+                f.write(live_master)
+            with open(os.path.join(temp_dir, 'live_720p.m3u8'), 'w') as f:
+                f.write(live_variant)
+            with open(os.path.join(temp_dir, 'vod_master.m3u8'), 'w') as f:
+                f.write(vod_master)
+            with open(os.path.join(temp_dir, 'vod_720p.m3u8'), 'w') as f:
+                f.write(vod_variant)
+            with open(os.path.join(temp_dir, 'live_media.m3u8'), 'w') as f:
+                f.write(live_media)
+            with open(os.path.join(temp_dir, 'vod_media.m3u8'), 'w') as f:
+                f.write(vod_media)
+
+            base_url = Path(temp_dir).as_uri() + '/'
+
+            # Test live master playlist
+            live_master_url = base_url + 'live_master.m3u8'
+            probe = HLSParser.probe_stream_info(live_master_url)
+            self.assertEqual(probe["duration"], 20.0)
+            self.assertTrue(probe["filesize_approx"], "Live master should be marked as approximate")
+
+            # Test VOD master playlist
+            vod_master_url = base_url + 'vod_master.m3u8'
+            probe = HLSParser.probe_stream_info(vod_master_url)
+            self.assertEqual(probe["duration"], 20.0)
+            self.assertFalse(probe["filesize_approx"], "VOD master should not be marked as approximate")
+
+            # Test live media playlist
+            live_media_url = base_url + 'live_media.m3u8'
+            probe = HLSParser.probe_stream_info(live_media_url)
+            self.assertEqual(probe["duration"], 20.0)
+            self.assertTrue(probe["filesize_approx"], "Live media should be marked as approximate")
+
+            # Test VOD media playlist
+            vod_media_url = base_url + 'vod_media.m3u8'
+            probe = HLSParser.probe_stream_info(vod_media_url)
+            self.assertEqual(probe["duration"], 20.0)
+            # Media playlists lack BANDWIDTH, so they use fallback and are marked approximate
+            self.assertTrue(probe["filesize_approx"], "Media playlists lack BANDWIDTH, so they are approximate")
+
+            # Test extract_formats for live vs VOD
+            live_formats = HLSParser.extract_formats(live_master_url)
+            self.assertTrue(live_formats[0]["filesize_approx"], "Live extract_formats should be approximate")
+
+            vod_formats = HLSParser.extract_formats(vod_master_url)
+            self.assertFalse(vod_formats[0]["filesize_approx"], "VOD extract_formats should not be approximate")
+
+            live_media_formats = HLSParser.extract_formats(live_media_url)
+            self.assertTrue(live_media_formats[0]["filesize_approx"], "Live media extract_formats should be approximate")
+
+            vod_media_formats = HLSParser.extract_formats(vod_media_url)
+            self.assertTrue(vod_media_formats[0]["filesize_approx"], "Media extract_formats lacks BANDWIDTH, so approximate")
+
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_hls_master_without_bandwidth(self):
+        """Test HLS master playlist without BANDWIDTH attribute still probes duration."""
+        master_no_bw = """#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-STREAM-INF:RESOLUTION=1280x720
+720p.m3u8
+"""
+        variant = """#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXTINF:10.0,
+seg1.ts
+#EXTINF:10.0,
+seg2.ts
+#EXTINF:10.0,
+seg3.ts
+#EXT-X-ENDLIST
+"""
+
+        import tempfile
+        import os
+        import shutil
+        from pathlib import Path
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            with open(os.path.join(temp_dir, 'master.m3u8'), 'w') as f:
+                f.write(master_no_bw)
+            with open(os.path.join(temp_dir, '720p.m3u8'), 'w') as f:
+                f.write(variant)
+
+            master_url = Path(os.path.join(temp_dir, 'master.m3u8')).as_uri()
+            probe = HLSParser.probe_stream_info(master_url)
+
+            # Should fetch variant and get duration even without BANDWIDTH
+            self.assertEqual(probe["duration"], 30.0)
+            self.assertEqual(probe["bandwidth"], 2500000)  # Fallback bandwidth
+            self.assertTrue(probe["filesize_approx"])  # Marked approx due to fallback bandwidth
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_dash_dynamic_manifest(self):
+        """Test that dynamic DASH manifests (no mediaPresentationDuration) are marked as approximate."""
+        dynamic_mpd = """<?xml version="1.0" encoding="UTF-8"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="dynamic">
+  <Period>
+    <AdaptationSet mimeType="video/mp4" contentType="video">
+      <SegmentTemplate timescale="1000" duration="4000" initialization="init.mp4" media="seg-\$Number\$.m4s" startNumber="1"/>
+      <Representation id="720p" bandwidth="2000000" width="1280" height="720"/>
+    </AdaptationSet>
+    <AdaptationSet mimeType="audio/mp4" contentType="audio" lang="en">
+      <Role schemeIdUri="urn:mpeg:dash:role:2011" value="main"/>
+      <SegmentTemplate timescale="1000" duration="4000" initialization="audio-init.mp4" media="audio-\$Number\$.m4s" startNumber="1"/>
+      <Representation id="audio" bandwidth="128000" audioSamplingRate="48000"/>
+    </AdaptationSet>
+  </Period>
+</MPD>
+"""
+
+        import tempfile
+        import os
+        from pathlib import Path
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.mpd', delete=False) as f:
+            f.write(dynamic_mpd)
+            mpd_path = f.name
+
+        try:
+            mpd_url = Path(mpd_path).as_uri()
+            formats = DASHParser.extract_formats(mpd_url)
+            probe = DASHParser.probe_stream_info(mpd_url)
+
+            # Dynamic manifest should have approx flag
+            self.assertTrue(probe["filesize_approx"], "Dynamic DASH should be marked as approximate")
+            self.assertEqual(probe["duration"], 0.0)
+            self.assertEqual(probe["filesize"], 0)
+
+            for fmt in formats:
+                self.assertTrue(fmt["filesize_approx"], "Dynamic DASH formats should be approximate")
+        finally:
+            os.unlink(mpd_path)
+
 
 if __name__ == "__main__":
     unittest.main()

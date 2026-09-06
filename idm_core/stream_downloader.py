@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -117,16 +118,23 @@ class HLSParser:
             bandwidth = 0
             variant_url = m3u8_url
             is_master = any(line.startswith("#EXT-X-STREAM-INF") for line in lines)
-            is_live = False
+            first_variant_url = None
 
             if is_master:
                 for i, line in enumerate(lines):
                     if line.startswith("#EXT-X-STREAM-INF"):
                         match = re.search(r"BANDWIDTH=(\d+)", line)
                         bw = int(match.group(1)) if match else 0
-                        if bw > bandwidth and i + 1 < len(lines) and not lines[i + 1].startswith("#"):
-                            bandwidth = bw
-                            variant_url = parser._resolve_url(m3u8_url, lines[i + 1])
+                        if i + 1 < len(lines) and not lines[i + 1].startswith("#"):
+                            variant_candidate = parser._resolve_url(m3u8_url, lines[i + 1])
+                            if first_variant_url is None:
+                                first_variant_url = variant_candidate
+                            if bw > bandwidth:
+                                bandwidth = bw
+                                variant_url = variant_candidate
+                # If no BANDWIDTH found, use first variant for duration probing
+                if variant_url == m3u8_url and first_variant_url:
+                    variant_url = first_variant_url
                 if variant_url != m3u8_url:
                     content = parser._fetch_text(variant_url)
                     lines = [line.strip() for line in content.splitlines() if line.strip()]
@@ -139,11 +147,12 @@ class HLSParser:
                         total_duration += float(match.group(1))
 
             # Check if this is a live stream (no EXT-X-ENDLIST in media playlist)
-            if not is_master:
-                # For media playlist, check if current content has ENDLIST
+            # For master playlist, only check if we successfully fetched a variant
+            is_live = False
+            if variant_url != m3u8_url:
                 is_live = not any(line == "#EXT-X-ENDLIST" for line in lines)
-            else:
-                # For master playlist, check the variant playlist for ENDLIST
+            elif not is_master:
+                # Media playlist (not master, no variant fetched)
                 is_live = not any(line == "#EXT-X-ENDLIST" for line in lines)
 
             used_fallback = False
@@ -159,7 +168,7 @@ class HLSParser:
                 "filesize": estimated_size,
                 "filesize_approx": is_approx
             }
-        except Exception:
+        except (urllib.error.URLError, ValueError, ET.ParseError) as e:
             return {"duration": 0, "bandwidth": 0, "filesize": 0, "filesize_approx": True}
 
     @classmethod
@@ -257,7 +266,8 @@ class HLSParser:
 
                 # Live stream detection: no EXT-X-ENDLIST in media playlist
                 is_live = not any(line == "#EXT-X-ENDLIST" for line in lines)
-                is_approx = total_duration <= 0 or is_live
+                # Media playlists lack BANDWIDTH info, so size is always approximate
+                is_approx = total_duration <= 0 or is_live or True
                 fmt = {
                     "label": "Best Quality",
                     "height": 0,
@@ -277,7 +287,7 @@ class HLSParser:
 
             formats.sort(key=lambda x: x.get("height", 0), reverse=True)
             return formats
-        except Exception:
+        except (urllib.error.URLError, ValueError, ET.ParseError):
             return []
 
 
