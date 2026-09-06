@@ -267,7 +267,7 @@ class HLSParser:
                 # Live stream detection: no EXT-X-ENDLIST in media playlist
                 is_live = not any(line == "#EXT-X-ENDLIST" for line in lines)
                 # Media playlists lack BANDWIDTH info, so size is always approximate
-                is_approx = total_duration <= 0 or is_live or True
+                is_approx = True
                 fmt = {
                     "label": "Best Quality",
                     "height": 0,
@@ -643,7 +643,7 @@ class DASHParser:
                 "filesize": estimated_size,
                 "filesize_approx": is_approx
             }
-        except Exception:
+        except (urllib.error.URLError, ValueError, ET.ParseError):
             return {"duration": 0, "bandwidth": 0, "filesize": 0, "filesize_approx": True}
 
     @classmethod
@@ -838,7 +838,7 @@ class DASHParser:
 
             formats.sort(key=lambda x: (x["height"], x.get("fps", 0)), reverse=True)
             return formats
-        except Exception:
+        except (urllib.error.URLError, ValueError, ET.ParseError):
             return []
 
 

@@ -628,27 +628,38 @@
       return true;
     }
 
+    function resolveUrl(url) {
+      try {
+        return new URL(url, window.location.href).href;
+      } catch {
+        return null;
+      }
+    }
+
     if (request.action === "get_page_metadata") {
       try {
         let thumbnail = null;
         const ogImage = document.querySelector('meta[property="og:image"]');
         if (ogImage && ogImage.content) {
-          thumbnail = ogImage.content;
+          thumbnail = resolveUrl(ogImage.content);
         } else {
           const twitterImage = document.querySelector('meta[name="twitter:image"]');
           if (twitterImage && twitterImage.content) {
-            thumbnail = twitterImage.content;
+            thumbnail = resolveUrl(twitterImage.content);
           } else {
             const metaImage = document.querySelector('meta[itemprop="image"]');
             if (metaImage && metaImage.content) {
-              thumbnail = metaImage.content;
+              thumbnail = resolveUrl(metaImage.content);
             } else {
               const firstImg = document.querySelector("img");
               if (firstImg && firstImg.src) {
-                thumbnail = firstImg.src;
+                thumbnail = resolveUrl(firstImg.src);
               }
             }
           }
+        }
+        if (thumbnail && (thumbnail.startsWith("data:") || thumbnail.startsWith("blob:"))) {
+          thumbnail = null;
         }
         sendResponse({ thumbnail });
       } catch (e) {

@@ -584,13 +584,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           sendResponse({ thumbnail: null });
           return;
         }
-        chrome.tabs.sendMessage(tabId, { action: "get_page_metadata" }, (response) => {
-          if (chrome.runtime.lastError || !response) {
-            sendResponse({ thumbnail: null });
-          } else {
-            sendResponse({ thumbnail: response.thumbnail || null });
-          }
+        const timeoutMs = 3000;
+        const timeoutPromise = new Promise((resolve) => {
+          setTimeout(() => resolve({ thumbnail: null }), timeoutMs);
         });
+        const messagePromise = new Promise((resolve) => {
+          chrome.tabs.sendMessage(tabId, { action: "get_page_metadata" }, (response) => {
+            if (chrome.runtime.lastError || !response) {
+              resolve({ thumbnail: null });
+            } else {
+              resolve({ thumbnail: response.thumbnail || null });
+            }
+          });
+        });
+        const result = await Promise.race([messagePromise, timeoutPromise]);
+        sendResponse(result);
       } catch (err) {
         sendResponse({ thumbnail: null });
       }

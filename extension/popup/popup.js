@@ -280,17 +280,36 @@ document.addEventListener("DOMContentLoaded", () => {
           row.className = "media-item";
           row.title = item.url;
           const cleanUrlHint = item.url.split("?")[0].replace(/^https?:\/\//, "");
-          const thumbHtml = item.thumbnail
-            ? `<img class="media-item-thumb" src="${item.thumbnail}" alt="" loading="lazy" onerror="this.style.display='none'">`
-            : `<div class="media-item-thumb-placeholder"></div>`;
-          row.innerHTML = `
-            ${thumbHtml}
-            <div class="media-item-info">
-              <span class="media-item-title">${item.label}</span>
-              <span class="media-item-url-hint">${cleanUrlHint}</span>
-            </div>
-            <span class="media-item-badge">${item.badge}</span>
+
+          if (item.thumbnail) {
+            const img = document.createElement("img");
+            img.className = "media-item-thumb";
+            img.src = item.thumbnail;
+            img.alt = item.label || "Video thumbnail";
+            img.loading = "lazy";
+            img.addEventListener("error", () => {
+              img.style.display = "none";
+            });
+            row.appendChild(img);
+          } else {
+            const placeholder = document.createElement("div");
+            placeholder.className = "media-item-thumb-placeholder";
+            placeholder.setAttribute("aria-label", "No thumbnail available");
+            row.appendChild(placeholder);
+          }
+
+          const infoDiv = document.createElement("div");
+          infoDiv.className = "media-item-info";
+          infoDiv.innerHTML = `
+            <span class="media-item-title">${item.label}</span>
+            <span class="media-item-url-hint">${cleanUrlHint}</span>
           `;
+          row.appendChild(infoDiv);
+
+          const badge = document.createElement("span");
+          badge.className = "media-item-badge";
+          badge.textContent = item.badge;
+          row.appendChild(badge);
           row.addEventListener("click", () => {
             const title = activeTab.title ? activeTab.title.replace(/[\\/:*?"<>|]/g, "_").trim() : "video";
             const badgeLow = item.badge.toLowerCase();
