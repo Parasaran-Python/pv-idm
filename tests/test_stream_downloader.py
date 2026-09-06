@@ -432,6 +432,7 @@ seg2.ts
         import tempfile
         import os
         import shutil
+        from pathlib import Path
 
         temp_dir = tempfile.mkdtemp()
         try:
@@ -449,7 +450,7 @@ seg2.ts
             with open(os.path.join(temp_dir, 'vod_media.m3u8'), 'w') as f:
                 f.write(vod_media)
 
-            base_url = 'file://' + temp_dir + '/'
+            base_url = Path(temp_dir).as_uri() + '/'
 
             # Test live master playlist
             live_master_url = base_url + 'live_master.m3u8'
@@ -514,6 +515,7 @@ seg3.ts
         import tempfile
         import os
         import shutil
+        from pathlib import Path
 
         temp_dir = tempfile.mkdtemp()
         try:
@@ -522,7 +524,7 @@ seg3.ts
             with open(os.path.join(temp_dir, '720p.m3u8'), 'w') as f:
                 f.write(variant)
 
-            master_url = 'file://' + os.path.join(temp_dir, 'master.m3u8')
+            master_url = Path(os.path.join(temp_dir, 'master.m3u8')).as_uri()
             probe = HLSParser.probe_stream_info(master_url)
 
             # Should fetch variant and get duration even without BANDWIDTH
@@ -552,13 +554,14 @@ seg3.ts
 
         import tempfile
         import os
+        from pathlib import Path
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.mpd', delete=False) as f:
             f.write(dynamic_mpd)
             mpd_path = f.name
 
         try:
-            mpd_url = 'file://' + mpd_path
+            mpd_url = Path(mpd_path).as_uri()
             formats = DASHParser.extract_formats(mpd_url)
             probe = DASHParser.probe_stream_info(mpd_url)
 
