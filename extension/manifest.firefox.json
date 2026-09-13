@@ -47,7 +47,9 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "pv-idm@pv-idm.local",
-      "strict_min_version": "90.0"
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
     }
   },
   "icons": {

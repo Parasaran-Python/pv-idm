@@ -235,7 +235,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (rawStreams.length === 0 && !isYouTube) return;
 
         mediaCard.style.display = "block";
-        mediaList.innerHTML = "";
+        mediaList.textContent = "";
 
         const validStreams = [];
         if (isYouTube) {

@@ -138,7 +138,7 @@
     const dragHandle = document.createElement("div");
     dragHandle.className = "idm-grabber-drag-handle";
     dragHandle.title = "Drag to reposition IDM bar";
-    dragHandle.innerHTML = `⠿`;
+    dragHandle.textContent = "⠿";
 
     const button = document.createElement("div");
     button.className = "idm-grabber-button";
@@ -155,7 +155,7 @@
     const closeBtn = document.createElement("button");
     closeBtn.className = "idm-grabber-close-btn";
     closeBtn.title = "Dismiss IDM download panel";
-    closeBtn.innerHTML = "&times;";
+    closeBtn.textContent = "×";
     closeBtn.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
       e.stopImmediatePropagation();
@@ -187,7 +187,7 @@
     menu.className = "idm-grabber-menu";
 
     function populateMenu() {
-      menu.innerHTML = "";
+      menu.textContent = "";
       const currentUrl = window.location.href;
       let items = [];
 
@@ -263,12 +263,35 @@
         const row = document.createElement("div");
         row.className = "idm-grabber-menu-item" + (item.disabled ? " idm-menu-item-disabled" : "");
         const isApprox = item.filesize_approx === true;
-        const approxStr = isApprox ? " <span class=\"idm-menu-item-approx\">(approx)</span>" : "";
-        const sizeStr = item.filesize && item.filesize > 0 ? ` <span class="idm-menu-item-size">(${formatBytes(item.filesize)})</span>${approxStr}` : (isApprox ? ` <span class="idm-menu-item-size">Unknown size${approxStr}</span>` : "");
-        row.innerHTML = `
-          <span class="idm-menu-item-text">${item.label}${sizeStr}</span>
-          <span class="idm-menu-item-badge">${item.format}</span>
-        `;
+        const textSpan = document.createElement("span");
+        textSpan.className = "idm-menu-item-text";
+        textSpan.textContent = item.label || "";
+
+        if (item.filesize && item.filesize > 0) {
+          const sizeSpan = document.createElement("span");
+          sizeSpan.className = "idm-menu-item-size";
+          sizeSpan.textContent = ` (${formatBytes(item.filesize)})`;
+          textSpan.appendChild(sizeSpan);
+        } else if (isApprox) {
+          const sizeSpan = document.createElement("span");
+          sizeSpan.className = "idm-menu-item-size";
+          sizeSpan.textContent = " Unknown size";
+          textSpan.appendChild(sizeSpan);
+        }
+
+        if (isApprox) {
+          const approxSpan = document.createElement("span");
+          approxSpan.className = "idm-menu-item-approx";
+          approxSpan.textContent = " (approx)";
+          textSpan.appendChild(approxSpan);
+        }
+
+        const badgeSpan = document.createElement("span");
+        badgeSpan.className = "idm-menu-item-badge";
+        badgeSpan.textContent = item.format || "";
+
+        row.appendChild(textSpan);
+        row.appendChild(badgeSpan);
         if (!item.disabled) {
           row.addEventListener("click", (e) => {
             e.stopPropagation();
