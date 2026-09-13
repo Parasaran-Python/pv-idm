@@ -93,7 +93,10 @@ class TestExtensionManifests(unittest.TestCase):
         self.assertIn("scripts", data["background"])
         self.assertIn("browser_specific_settings", data)
         self.assertIn("gecko", data["browser_specific_settings"])
-        self.assertEqual(data["browser_specific_settings"]["gecko"].get("id"), "pv-idm@pv-idm.local")
+        gecko = data["browser_specific_settings"]["gecko"]
+        self.assertEqual(gecko.get("id"), "pv-idm@pv-idm.local")
+        self.assertIn("data_collection_permissions", gecko)
+        self.assertEqual(gecko["data_collection_permissions"].get("required"), ["none"])
 
         # Verify tabs permission for parity
         permissions = data.get("permissions", [])
@@ -138,6 +141,38 @@ class TestExtensionManifests(unittest.TestCase):
             self.assertIn("background/service_worker.js", names)
             manifest_content = json.loads(zf.read("manifest.json").decode("utf-8"))
             self.assertEqual(manifest_content.get("manifest_version"), 2)
+            self.assertIn("browser_specific_settings", manifest_content)
+            gecko = manifest_content["browser_specific_settings"]["gecko"]
+            self.assertIn("data_collection_permissions", gecko)
+            self.assertEqual(gecko["data_collection_permissions"].get("required"), ["none"])
+
+    def test_firefox_addons_linter_compliance(self):
+        """Validate Firefox extension zip against official addons-linter if npx is available."""
+        import shutil
+        npx_bin = shutil.which("npx")
+        if not npx_bin:
+            self.skipTest("npx binary not available for addons-linter validation")
+
+        firefox_zip = os.path.join(self.repo_root, "dist", "pv-idm-extension-firefox.zip")
+        if not os.path.exists(firefox_zip):
+            from scripts.package_extensions import package_extensions
+            package_extensions()
+
+        res = subprocess.run(
+            [npx_bin, "--yes", "addons-linter", "--output=json", firefox_zip],
+            capture_output=True,
+            text=True,
+            cwd=self.repo_root,
+        )
+        self.assertEqual(res.returncode, 0, f"addons-linter command failed: {res.stderr}")
+        try:
+            lint_result = json.loads(res.stdout)
+            errors = lint_result.get("errors", [])
+            warnings = lint_result.get("warnings", [])
+            self.assertEqual(len(errors), 0, f"addons-linter reported errors: {errors}")
+            self.assertEqual(len(warnings), 0, f"addons-linter reported warnings: {warnings}")
+        except json.JSONDecodeError:
+            self.fail(f"Failed to parse addons-linter output as JSON: {res.stdout}")
 
     def test_extension_javascript_syntax(self):
         """Validate JavaScript syntax across all extension source files via node --check if available."""

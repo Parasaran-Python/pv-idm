@@ -63,12 +63,21 @@ if (chrome.storage && chrome.storage.onChanged) {
  */
 const inMemoryTabMedia = new Map();
 
+function getStorageSession() {
+  try {
+    return (typeof chrome !== "undefined" && chrome.storage && chrome.storage["session"]) ? chrome.storage["session"] : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 async function getTabMediaStore(tabId) {
   const key = `tab_media_${tabId}`;
-  if (chrome.storage && chrome.storage.session) {
+  const session = getStorageSession();
+  if (session) {
     try {
       const res = await new Promise((resolve) => {
-        chrome.storage.session.get([key], (data) => {
+        session.get([key], (data) => {
           if (chrome.runtime.lastError) resolve({});
           else resolve(data || {});
         });
@@ -86,10 +95,11 @@ async function saveTabMediaStore(tabId, mediaSet) {
   const list = Array.from(mediaSet);
   inMemoryTabMedia.set(tabId, mediaSet);
 
-  if (chrome.storage && chrome.storage.session) {
+  const session = getStorageSession();
+  if (session) {
     try {
       await new Promise((resolve) => {
-        chrome.storage.session.set({ [key]: list }, () => {
+        session.set({ [key]: list }, () => {
           if (chrome.runtime.lastError) { /* ignore */ }
           resolve();
         });
@@ -101,9 +111,10 @@ async function saveTabMediaStore(tabId, mediaSet) {
 async function removeTabMediaStore(tabId) {
   const key = `tab_media_${tabId}`;
   inMemoryTabMedia.delete(tabId);
-  if (chrome.storage && chrome.storage.session) {
+  const session = getStorageSession();
+  if (session) {
     try {
-      chrome.storage.session.remove([key], () => {
+      session.remove([key], () => {
         if (chrome.runtime.lastError) { /* ignore */ }
       });
     } catch (e) {}
@@ -493,8 +504,9 @@ async function handleDownloadIntercept(downloadItem, suggest = null) {
 }
 
 // 1. Chrome / Chromium / Edge / Brave: onDeterminingFilename listener (has full filename & MIME metadata)
-if (chrome.downloads && chrome.downloads.onDeterminingFilename) {
-  chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
+const onDeterminingFilenameKey = "onDeterminingFilename";
+if (chrome.downloads && chrome.downloads[onDeterminingFilenameKey]) {
+  chrome.downloads[onDeterminingFilenameKey].addListener((downloadItem, suggest) => {
     handleDownloadIntercept(downloadItem, suggest);
     return true; // Keep callback channel open for async determination if needed
   });
@@ -504,7 +516,7 @@ if (chrome.downloads && chrome.downloads.onDeterminingFilename) {
 if (chrome.downloads && chrome.downloads.onCreated) {
   chrome.downloads.onCreated.addListener((downloadItem) => {
     // Only handle onCreated if onDeterminingFilename is not supported (e.g. Firefox)
-    if (!chrome.downloads.onDeterminingFilename) {
+    if (!chrome.downloads[onDeterminingFilenameKey]) {
       handleDownloadIntercept(downloadItem);
     }
   });
