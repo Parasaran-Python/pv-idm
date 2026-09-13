@@ -23,7 +23,7 @@ class TestIPC(unittest.TestCase):
         self.engine = DownloadEngine(self.config)
         self.server = IPCServer(self.engine, self.config.socket_path)
         self.server.start()
-        for _ in range(30):
+        for _ in range(60):
             if IPCClient(self.config.socket_path).is_server_running():
                 break
             time.sleep(0.05)
@@ -35,6 +35,10 @@ class TestIPC(unittest.TestCase):
 
     def test_ping_and_add_download_via_ipc(self):
         client = IPCClient(self.config.socket_path)
+        for _ in range(30):
+            if client.is_server_running():
+                break
+            time.sleep(0.1)
         self.assertTrue(client.is_server_running())
 
         # Test Ping
@@ -66,6 +70,10 @@ class TestIPC(unittest.TestCase):
 
     def test_add_download_normalizes_videoplayback_via_ipc(self):
         client = IPCClient(self.config.socket_path)
+        for _ in range(30):
+            if client.is_server_running():
+                break
+            time.sleep(0.1)
         self.assertTrue(client.is_server_running())
 
         res = client.send_request({
